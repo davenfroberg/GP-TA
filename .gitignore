@@ -2,3 +2,4 @@ lambda/*/python
 *.zip
 venv
 .DS_Store
+all_chunks.json
