@@ -7,11 +7,37 @@ import boto3
 from botocore.exceptions import ClientError
 from bs4 import BeautifulSoup
 import hashlib
+from pinecone import Pinecone
 
-SECRET_NAME = "piazza"
-REGION_NAME = "us-west-2"
+SECRETS = {
+    "PIAZZA": "piazza",
+    "PINECONE": "pinecone"
+}
+AWS_REGION_NAME = "us-west-2"
 
-def get_piazza_credentials(secret_name=SECRET_NAME, region_name=REGION_NAME):
+def initialize_pinecone(region_name=AWS_REGION_NAME, secret_name=SECRETS['PINECONE']):
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+        secret_dict = json.loads(get_secret_value_response['SecretString'])
+        api_key = secret_dict['api_key']
+        return Pinecone(api_key=api_key)
+    
+    except ClientError as e:
+        print(f"Error retrieving secret: {e}")
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        raise
+
+pc = initialize_pinecone()
+
+def get_piazza_credentials(secret_name=SECRETS['PIAZZA'], region_name=AWS_REGION_NAME):
     session = boto3.session.Session()
     client = session.client(
         service_name='secretsmanager',
@@ -48,7 +74,7 @@ def extract_children(children, parent_id=None):
         info['id'] = child.get('id', '')
         info['parent_id'] = parent_id
         info['type'] = child.get('type', '')
-        info['title'] = None
+        info['title'] = ''
         blobs.append(info)
         blobs.extend(extract_children(child.get('children', []), parent_id=info['id']))
     return blobs
@@ -62,7 +88,7 @@ def get_all_post_blobs(post):
     info['date'] = history_item.get('created', '')
     info['post_num'] = post.get('nr', 0)
     info['id'] = post.get('id', '')
-    info['parent_id'] = None
+    info['parent_id'] = ''
     info['type'] = post.get('type', '')
     blobs.append(info)
     blobs.extend(extract_children(post.get('children', []), parent_id=info['id']))
@@ -125,21 +151,22 @@ def lambda_handler(event, context):
     classes = p.get_user_classes()
 
     all_chunks = []
+    batch = []
+    index = pc.Index("piazza-chunks")
 
     for cl in classes:
         class_id = cl['nid']
         network = p.network(class_id)
-        for post in network.iter_all_posts(limit=10, sleep=1):
+        for post in network.iter_all_posts(limit=None, sleep=1):
             blobs = get_all_post_blobs(post)
             for blob in blobs:
                 chunks = generate_chunks(blob)
                 for idx, chunk_text in enumerate(chunks):
                     content_hash = compute_hash(chunk_text)
                     s3_uri = f"s3://{class_id}/{blob['id']}/chunk_{idx}.txt"
-                    # Instead of uploading, just print what would be sent
                     chunk = {
                         "class_id": class_id,
-                        "post_chunk_id": f"{blob['id']}#{idx}",
+                        "id": f"{blob['id']}#{idx}",
                         "post_id": blob['id'],
                         "chunk_index": idx,
                         "parent_id": blob['parent_id'],
@@ -151,6 +178,15 @@ def lambda_handler(event, context):
                         "chunk_text": chunk_text
                     }
                     all_chunks.append(chunk)
+                    batch.append(chunk)
+                    if len(batch) == 10:
+                        index.upsert_records("piazza", batch)
+                        batch = []
+
+    # TODO: move any Pinecone upserting to a new file/lambda function. this lambda should just scrape and insert it into dynamo
+    # Upsert any remaining records
+    if batch:
+        index.upsert_records("piazza", batch)
 
     # Write all_chunks to a file
     with open("all_chunks.json", "w", encoding="utf-8") as f:
