@@ -5,37 +5,39 @@ from pprint import pprint
 import json
 import boto3
 from botocore.exceptions import ClientError
+from pinecone import Pinecone
 from bs4 import BeautifulSoup
 import hashlib
-from pinecone import Pinecone
 
 SECRETS = {
     "PIAZZA": "piazza",
     "PINECONE": "pinecone"
 }
 AWS_REGION_NAME = "us-west-2"
+DYNAMO_TABLE_NAME = "piazza-chunks"
 
-def initialize_pinecone(region_name=AWS_REGION_NAME, secret_name=SECRETS['PINECONE']):
-    session = boto3.session.Session()
-    client = session.client(
-        service_name='secretsmanager',
-        region_name=region_name
-    )
+PINECONE_INDEX_NAME = "piazza-chunks"
+PINECONE_NAMESPACE = "piazza"
 
-    try:
-        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
-        secret_dict = json.loads(get_secret_value_response['SecretString'])
-        api_key = secret_dict['api_key']
-        return Pinecone(api_key=api_key)
-    
-    except ClientError as e:
-        print(f"Error retrieving secret: {e}")
-        raise
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        raise
+dynamodb = boto3.resource("dynamodb")
+chunk_dynamo_table = dynamodb.Table("piazza-chunks")
 
-pc = initialize_pinecone()
+def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
+	session = boto3.session.Session()
+	client = session.client(
+		service_name='secretsmanager',
+		region_name=region_name
+	)
+	try:
+		get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+		secret_dict = json.loads(get_secret_value_response['SecretString'])
+		return secret_dict['api_key']
+	except ClientError as e:
+		print(f"Error retrieving secret: {e}")
+		raise
+	except Exception as e:
+		print(f"Unexpected error: {e}")
+		raise
 
 def get_piazza_credentials(secret_name=SECRETS['PIAZZA'], region_name=AWS_REGION_NAME):
     session = boto3.session.Session()
@@ -48,6 +50,7 @@ def get_piazza_credentials(secret_name=SECRETS['PIAZZA'], region_name=AWS_REGION
         secret_dict = json.loads(get_secret_value_response['SecretString'])
         username = secret_dict['username']
         password = secret_dict['password']
+        print("Successfuly retrieved Piazza credentials from AWS secrets manager")
         return username, password
     except ClientError as e:
         print(f"Error retrieving secret: {e}")
@@ -63,7 +66,7 @@ def clean_text(raw_html):
     text = re.sub(r"\n\s*\n", "\n", text)
     return text.strip()
 
-def extract_children(children, parent_id=None):
+def extract_children(children, root_id, parent_id=None):
     blobs = []
     for child in children:
         info = {}
@@ -74,12 +77,13 @@ def extract_children(children, parent_id=None):
         info['id'] = child.get('id', '')
         info['parent_id'] = parent_id
         info['type'] = child.get('type', '')
+        info['root_id'] = root_id
         info['title'] = ''
         blobs.append(info)
-        blobs.extend(extract_children(child.get('children', []), parent_id=info['id']))
+        blobs.extend(extract_children(child.get('children', []), root_id, info['id']))
     return blobs
 
-def get_all_post_blobs(post):
+def get_all_question_blobs(post):
     blobs = []
     history_item = post.get('history', [{}])[0]
     info = {}
@@ -88,10 +92,11 @@ def get_all_post_blobs(post):
     info['date'] = history_item.get('created', '')
     info['post_num'] = post.get('nr', 0)
     info['id'] = post.get('id', '')
-    info['parent_id'] = ''
+    info['parent_id'] = info['id']
+    info['root_id'] = info['id']
     info['type'] = post.get('type', '')
     blobs.append(info)
-    blobs.extend(extract_children(post.get('children', []), parent_id=info['id']))
+    blobs.extend(extract_children(post.get('children', []), info['id'], info['id']))
     return blobs
 
 def split_sentences(text):
@@ -100,10 +105,6 @@ def split_sentences(text):
     return [s.strip() for s in sentences if s.strip()]
 
 def generate_chunks(blob, chunk_size=100):
-    """
-    Split blob['content'] into chunks of roughly chunk_size words,
-    with a single-sentence overlap between consecutive chunks.
-    """
     text = blob['content']
     title = blob.get('title')
     
@@ -151,50 +152,71 @@ def lambda_handler(event, context):
     classes = p.get_user_classes()
 
     all_chunks = []
-    batch = []
+    pinecone_api_key = get_secret_api_key("pinecone")
+    pc = Pinecone(api_key=pinecone_api_key)
     index = pc.Index("piazza-chunks")
+    pinecone_batch = []
+    chunk_count = 0
 
     for cl in classes:
         class_id = cl['nid']
         network = p.network(class_id)
         for post in network.iter_all_posts(limit=None, sleep=1):
-            blobs = get_all_post_blobs(post)
+            blobs = get_all_question_blobs(post)
             for blob in blobs:
                 chunks = generate_chunks(blob)
                 for idx, chunk_text in enumerate(chunks):
                     content_hash = compute_hash(chunk_text)
-                    s3_uri = f"s3://{class_id}/{blob['id']}/chunk_{idx}.txt"
                     chunk = {
+                        "id": f"{blob['id']}#{idx}", # chunk id
                         "class_id": class_id,
-                        "id": f"{blob['id']}#{idx}",
-                        "post_id": blob['id'],
+                        "blob_id": blob['id'],
                         "chunk_index": idx,
-                        "parent_id": blob['parent_id'],
+                        "root_id": blob['root_id'], # root question id
+                        "parent_id": blob['parent_id'], # direct parent id
                         "type": blob['type'],
                         "title": blob['title'],
-                        "s3_uri": s3_uri,
                         "date": blob['date'],
                         "content_hash": content_hash,
-                        "chunk_text": chunk_text
+                        "chunk_text": chunk_text,
                     }
                     all_chunks.append(chunk)
-                    batch.append(chunk)
-                    if len(batch) == 10:
-                        index.upsert_records("piazza", batch)
-                        batch = []
+                    
+                    try:
+                        chunk_dynamo_table.put_item(
+                            Item=chunk,
+                            ConditionExpression="attribute_not_exists(content_hash) OR content_hash <> :h",
+                            ExpressionAttributeValues={":h": content_hash}
+                        )
+                        print(f"Inserted chunk {chunk['id']}")
+                        # only add to pinecone batch if it was a new insert/update
+                        pinecone_batch.append(chunk)
+                        chunk_count += 1
+                    
+                    except ClientError as e:
+                        if e.response['Error']['Code'] == "ConditionalCheckFailedException":
+                            print(f"Skipped duplicate chunk {chunk['id']}")
+                        else:
+                            raise
+                            
+                    # Batch upserts to Pinecone in groups of 25 (pinecone max batch size is 96)
+                    if len(pinecone_batch) >= 25:
+                        index.upsert_records(PINECONE_NAMESPACE, pinecone_batch)
+                        print(f"Upserted {len(pinecone_batch)} chunks to Pinecone")
+                        pinecone_batch = []
 
-    # TODO: move any Pinecone upserting to a new file/lambda function. this lambda should just scrape and insert it into dynamo
-    # Upsert any remaining records
-    if batch:
-        index.upsert_records("piazza", batch)
+    # Upsert any remaining chunks to Pinecone
+    if pinecone_batch:
+        index.upsert_records(PINECONE_NAMESPACE, pinecone_batch)
+        print(f"Upserted {len(pinecone_batch)} chunks to Pinecone")
 
-    # Write all_chunks to a file
-    with open("all_chunks.json", "w", encoding="utf-8") as f:
-        json.dump(all_chunks, f, ensure_ascii=False, indent=2)
+    # # Write all_chunks to a file for debugging
+    # with open("all_chunks.json", "w", encoding="utf-8") as f:
+    #     json.dump(all_chunks, f, ensure_ascii=False, indent=2)
 
     return {
         "statusCode": 200,
-        "message": all_chunks
+        "message": f"successfully upserted {chunk_count} chunks"
     }
 
 
