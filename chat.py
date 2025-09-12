@@ -137,14 +137,19 @@ def get_context_from_dynamo(top_chunks):
 def ask_chatgpt(query, context_chunks):
     context = "\n\n".join(context_chunks)
     prompt = f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
-    response = openai_client.responses.create(
+    stream = openai_client.responses.create(
         model="gpt-5",
         reasoning={"effort": "low"},
         instructions="You are a helpful assistant for a student/instructor Q&A forum. Use only the provided context to answer the question. If a piece of context is not relevant to the question, ignore it. If the context does not contain enough information, inform the user that Piazza does not contain any relevant posts or information regarding the topic, and provide a potential answer but indicate uncertainty.",
         input=prompt,
+        stream=True
     )
 
-    return response.output_text
+    for event in stream:
+        if event.type == "response.output_text.delta":
+            print(event.delta, end="", flush=True)
+
+    return
 
 def main():
     print("Available classes:", ", ".join(classes.keys()))
@@ -154,10 +159,10 @@ def main():
         return
     class_id = classes[class_input]
     query = input("Question: ")
+    print("Thinking...")
     top_chunks = get_top_chunks(query, class_id)
     context_chunks = get_context_from_dynamo(top_chunks)
-    answer = ask_chatgpt(query, context_chunks)
-    print("\nChatGPT Answer:\n", answer)
+    ask_chatgpt(query, context_chunks)
 
 if __name__ == "__main__":
     main()
