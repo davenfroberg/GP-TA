@@ -151,18 +151,26 @@ def lambda_handler(event, context):
     p.user_login(email=username, password=password)
     classes = p.get_user_classes()
 
-    all_chunks = []
     pinecone_api_key = get_secret_api_key("pinecone")
     pc = Pinecone(api_key=pinecone_api_key)
     index = pc.Index("piazza-chunks")
+    
+    DYNAMO_BATCH_GET_SIZE = 100
+    PINECONE_BATCH_SIZE = 25
+
     pinecone_batch = []
     chunk_count = 0
 
     for cl in classes:
         class_id = cl['nid']
         network = p.network(class_id)
+        
         for post in network.iter_all_posts(limit=None, sleep=1):
+            # get all blobs (question, answers, discussions, followups, etc.) from a piazza post
             blobs = get_all_question_blobs(post)
+            post_chunks = []
+
+            # generate all chunks for the post's blobs
             for blob in blobs:
                 chunks = generate_chunks(blob)
                 for idx, chunk_text in enumerate(chunks):
@@ -180,45 +188,64 @@ def lambda_handler(event, context):
                         "content_hash": content_hash,
                         "chunk_text": chunk_text,
                     }
-                    all_chunks.append(chunk)
-                    
-                    try:
-                        chunk_dynamo_table.put_item(
-                            Item=chunk,
-                            ConditionExpression="attribute_not_exists(content_hash) OR content_hash <> :h",
-                            ExpressionAttributeValues={":h": content_hash}
-                        )
-                        print(f"Inserted chunk {chunk['id']}")
-                        # only add to pinecone batch if it was a new insert/update
-                        pinecone_batch.append(chunk)
-                        chunk_count += 1
-                    
-                    except ClientError as e:
-                        if e.response['Error']['Code'] == "ConditionalCheckFailedException":
-                            print(f"Skipped duplicate chunk {chunk['id']}")
-                        else:
-                            raise
-                            
-                    # Batch upserts to Pinecone in groups of 25 (pinecone max batch size is 96)
-                    if len(pinecone_batch) >= 25:
+                    post_chunks.append(chunk)
+
+            # Batch-get existing chunks to avoid duplicate inserts
+            for i in range(0, len(post_chunks), DYNAMO_BATCH_GET_SIZE):
+                batch = post_chunks[i:i + DYNAMO_BATCH_GET_SIZE]
+                keys_to_check = [
+                    {"parent_id": c['parent_id'], "id": c['id']}
+                    for c in batch
+                ]
+
+                response = dynamodb.batch_get_item(
+                    RequestItems={"piazza-chunks": {"Keys": keys_to_check}}
+                )
+
+                existing_items = {
+                    item['id']: item
+                    for item in response['Responses'].get('piazza-chunks', [])
+                }
+
+                # Only insert/update chunks that are new or have a different hash
+                chunks_to_insert = []
+                for chunk in batch:
+                    existing = existing_items.get(chunk['id'])
+                    if existing and existing.get('content_hash', {}) == chunk['content_hash']:
+                        print(f"Skipped duplicate chunk {chunk['id']}")
+                        continue
+
+                    chunks_to_insert.append(chunk)
+                    pinecone_batch.append(chunk)
+                    chunk_count += 1
+
+                    # Flush Pinecone batch if it reaches the defined size to avoid reaching Pinecone limit
+                    if len(pinecone_batch) >= PINECONE_BATCH_SIZE:
                         index.upsert_records(PINECONE_NAMESPACE, pinecone_batch)
                         print(f"Upserted {len(pinecone_batch)} chunks to Pinecone")
                         pinecone_batch = []
 
-    # Upsert any remaining chunks to Pinecone
+                # Batch-write new/updated chunks to DynamoDB
+                with chunk_dynamo_table.batch_writer() as batch_writer:
+                    for chunk in chunks_to_insert:
+                        batch_writer.put_item(Item=chunk)
+                        print(f"Inserted/Updated chunk {chunk['id']}")
+                
+                # Flush Pinecone batch at end of every DynamoDB batch write
+                if pinecone_batch:
+                    index.upsert_records(PINECONE_NAMESPACE, pinecone_batch)
+                    print(f"Upserted {len(pinecone_batch)} chunks to Pinecone")
+                    pinecone_batch = []
+
+    # Flush remaining Pinecone batch
     if pinecone_batch:
         index.upsert_records(PINECONE_NAMESPACE, pinecone_batch)
         print(f"Upserted {len(pinecone_batch)} chunks to Pinecone")
-
-    # # Write all_chunks to a file for debugging
-    # with open("all_chunks.json", "w", encoding="utf-8") as f:
-    #     json.dump(all_chunks, f, ensure_ascii=False, indent=2)
 
     return {
         "statusCode": 200,
         "message": f"successfully upserted {chunk_count} chunks"
     }
-
 
 if __name__ == "__main__":
     event = {}

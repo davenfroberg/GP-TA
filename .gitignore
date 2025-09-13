@@ -3,3 +3,6 @@ lambda/*/python
 venv
 .DS_Store
 all_chunks.json
+token.json
+credentials.json
+get_gmail_token.py
