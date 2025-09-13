@@ -91,7 +91,7 @@ def get_discussion_context(table, parent_id, blob_id, discussion_chunk_id):
     context_chunks = []
     # Get the discussion chunk
     resp = table.query(
-        KeyConditionExpression=boto3.dynamodb.conditions.Key('parent_id').eq(parent_id) & boto3.dynamodb.conditions.Key('id').eq(blob_id)
+        KeyConditionExpression=boto3.dynamodb.conditions.Key('parent_id').eq(parent_id) & boto3.dynamodb.conditions.Key('id').eq(discussion_chunk_id)
     )
     for item in resp.get('Items', []):
         context_chunks.append(item['chunk_text'])
@@ -162,6 +162,9 @@ def main():
     print("Thinking...")
     top_chunks = get_top_chunks(query, class_id)
     context_chunks = get_context_from_dynamo(top_chunks)
+    print("Context retrieved:")
+    for i, chunk in enumerate(context_chunks):
+        print(f"\n--- Context Chunk {i+1} ---\n{chunk}\n")
     ask_chatgpt(query, context_chunks)
 
 if __name__ == "__main__":
