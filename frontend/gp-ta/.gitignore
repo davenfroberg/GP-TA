@@ -1,11 +1,3 @@
-backend/lambda/*/python
-*.zip
-venv
-.DS_Store
-all_chunks.json
-token.json
-credentials.json
-get_gmail_token.py
 # Logs
 logs
 *.log
@@ -20,8 +12,6 @@ dist
 dist-ssr
 *.local
 
-package-lock.json
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -32,4 +22,3 @@ package-lock.json
 *.njsproj
 *.sln
 *.sw?
-

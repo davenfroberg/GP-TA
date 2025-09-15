@@ -19,6 +19,8 @@ classes = {
     "cpsc418": "met4o2esgko2zu"
 }
 
+chunk_ids = set()
+
 def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
     session = boto3.session.Session()
     client = session.client(
@@ -82,6 +84,7 @@ def get_question_context(table, blob_id):
     if i_answers:
         for chunks in i_answers:
             context.append("\n".join(chunks))
+            
     elif s_answers:
         for chunks in s_answers:
             context.append("\n".join(chunks))
