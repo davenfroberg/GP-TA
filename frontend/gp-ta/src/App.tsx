@@ -381,7 +381,7 @@ function TabBar({
       {tabs.map((tab) => (
         <div
           key={tab.id}
-          className={`flex items-center group px-5 py-2.5 border-r border-slate-700 text-sm select-none cursor-pointer ${
+          className={`flex items-center group px-3 py-2.5 border-r border-slate-700 text-sm select-none cursor-pointer ${
             activeTabId === tab.id
               ? "bg-slate-700 text-white rounded-sm"
               : "bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-sm"
@@ -411,10 +411,11 @@ function TabBar({
                 e.stopPropagation();
                 onTabClose(tab.id);
               }}
-              className="ml-2 text-slate-400 hover:text-white opacity-0 group-hover:opacity-100 transition"
+              className="ml-3 px-1.5 py-0.5 -m-1 text-slate-400 group-hover:text-white opacity-0 group-hover:opacity-100 transition rounded-sm hover:bg-slate-600"
             >
               ×
             </button>
+
           )}
         </div>
       ))}
