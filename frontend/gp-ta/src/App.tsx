@@ -411,7 +411,7 @@ function TabBar({
                 e.stopPropagation();
                 onTabClose(tab.id);
               }}
-              className="ml-3 px-1.5 py-0.5 -m-1 text-slate-400 group-hover:text-white opacity-0 group-hover:opacity-100 transition rounded-sm hover:bg-slate-600"
+              className="ml-3 px-2 py-0.5 -m-1 text-slate-400 group-hover:text-white opacity-0 group-hover:opacity-100 rounded-sm hover:bg-slate-600"
             >
               ×
             </button>
