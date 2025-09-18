@@ -33,3 +33,8 @@ package-lock.json
 *.sln
 *.sw?
 
+backend/chat
+backend/local_chat.py
+backend/get_gmail_token.py
+
+.env

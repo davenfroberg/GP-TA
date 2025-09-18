@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+/* in your globals.css or a <style> block */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fade-in {
+  animation: fadeIn 0.15s ease-in;
+}

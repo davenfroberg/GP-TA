@@ -66,29 +66,32 @@ def clean_text(raw_html):
     text = re.sub(r"\n\s*\n", "\n", text)
     return text.strip()
 
-def extract_children(children, root_id, parent_id=None):
+def extract_children(children, root_id, root_title, parent_id=None):
     blobs = []
     for child in children:
         info = {}
         history_item = child.get('history', [{}])[0]
-        info['content'] = clean_text(history_item.get('content', '') if 'content' in history_item else child.get('subject', ''))
+        info['content'] = clean_text(
+            history_item.get('content', '') if 'content' in history_item else child.get('subject', '')
+        )
         info['date'] = history_item.get('created', child.get('created', ''))
         info['post_num'] = child.get('nr', 0)
         info['id'] = child.get('id', '')
         info['parent_id'] = parent_id
         info['type'] = child.get('type', '')
         info['root_id'] = root_id
-        info['title'] = ''
+        info['title'] = root_title # give every child the root question's title for context
         blobs.append(info)
-        blobs.extend(extract_children(child.get('children', []), root_id, info['id']))
+        blobs.extend(extract_children(child.get('children', []), root_id, root_title, info['id']))
     return blobs
 
 def get_all_question_blobs(post):
     blobs = []
     history_item = post.get('history', [{}])[0]
+    root_title = history_item.get('subject', '')
     info = {}
     info['content'] = clean_text(history_item.get('content', ''))
-    info['title'] = history_item.get('subject', '')
+    info['title'] = root_title
     info['date'] = history_item.get('created', '')
     info['post_num'] = post.get('nr', 0)
     info['id'] = post.get('id', '')
@@ -96,7 +99,7 @@ def get_all_question_blobs(post):
     info['root_id'] = info['id']
     info['type'] = post.get('type', '')
     blobs.append(info)
-    blobs.extend(extract_children(post.get('children', []), info['id'], info['id']))
+    blobs.extend(extract_children(post.get('children', []), info['id'], root_title, info['id']))
     return blobs
 
 def split_sentences(text):
