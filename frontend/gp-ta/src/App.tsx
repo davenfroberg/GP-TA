@@ -34,6 +34,7 @@ const MODELS = [
   { value: "gpt-5-mini", label: "GPT-5-mini" }
 ];
 const ASSISTANT_GREETING_MESSAGE = "Hi — how can I help with your course today?";
+const MAX_NUMBER_OF_TABS = 6;
 
 export default function GlassChat() {
   // State management
@@ -243,6 +244,7 @@ export default function GlassChat() {
 
   // Tab management
   const createNewTab = useCallback(() => {
+    if (tabs.length >= MAX_NUMBER_OF_TABS) return;
     const id = Date.now();
     const newTab: ChatTab = { 
       id, 
@@ -420,12 +422,14 @@ function TabBar({
         </div>
       ))}
       
-      <button
-        onClick={onNewTab}
-        className="px-3 py-2 text-slate-300 hover:text-white"
-      >
-        +
-      </button>
+      {tabs.length < MAX_NUMBER_OF_TABS && (
+        <button
+          onClick={onNewTab}
+          className="px-4 py-2 text-slate-400 hover:text-white"
+        >
+          +
+        </button>
+      )}
     </div>
   );
 }
