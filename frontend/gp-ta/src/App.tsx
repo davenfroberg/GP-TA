@@ -6,16 +6,17 @@ interface Message {
   id: number;
   role: "user" | "assistant";
   text: string;
+  course?: string; // Add course to message data for user messages
 }
 
 interface ChatTab {
   id: number;
   title: string;
   messages: Message[];
+  course: string; // Add course to tab data
 }
 
 interface ChatConfig {
-  course: string;
   prioritizeInstructor: boolean;
   model: string;
 }
@@ -41,7 +42,6 @@ export default function GlassChat() {
   const [tabs, setTabs] = useState<ChatTab[]>(loadTabsFromStorage);
   const [activeTabId, setActiveTabId] = useState<number>(loadActiveTabIdFromStorage);
   const [chatConfig, setChatConfig] = useState<ChatConfig>({
-    course: "CPSC 110",
     prioritizeInstructor: false,
     model: "gpt-5"
   });
@@ -61,7 +61,15 @@ export default function GlassChat() {
   function loadTabsFromStorage(): ChatTab[] {
     try {
       const stored = localStorage.getItem(BROWSER_STORAGE_KEYS.TABS);
-      return stored ? JSON.parse(stored) : createDefaultTab();
+      if (stored) {
+        const parsedTabs = JSON.parse(stored);
+        // Migrate old tabs that don't have course property
+        return parsedTabs.map((tab: any) => ({
+          ...tab,
+          course: tab.course || COURSES[0] // Default to first course if missing
+        }));
+      }
+      return createDefaultTab();
     } catch {
       return createDefaultTab();
     }
@@ -73,7 +81,12 @@ export default function GlassChat() {
   }
 
   function createDefaultTab(): ChatTab[] {
-    return [{ id: Date.now(), title: "Chat 1", messages: [] }];
+    return [{ 
+      id: Date.now(), 
+      title: "Chat 1", 
+      messages: [],
+      course: COURSES[0] // Default to first course
+    }];
   }
 
   // Effects for persistence
@@ -220,7 +233,12 @@ export default function GlassChat() {
     const userMsgId = Date.now();
     const assistantMsgId = userMsgId + 1;
     
-    const userMsg: Message = { id: userMsgId, role: "user", text: trimmed };
+    const userMsg: Message = { 
+      id: userMsgId, 
+      role: "user", 
+      text: trimmed,
+      course: activeTab.course // Store the course with the user message
+    };
     const assistantMsg: Message = { 
       id: assistantMsgId, 
       role: "assistant", 
@@ -232,15 +250,15 @@ export default function GlassChat() {
     setInput("");
     messageBufferRef.current = "";
 
-    // Send WebSocket message
+    // Send WebSocket message using the current tab's course
     wsRef.current.send(JSON.stringify({
       action: "chat",
       message: trimmed,
-      class: chatConfig.course.toLowerCase().replace(" ", ""),
+      class: activeTab.course.toLowerCase().replace(" ", ""),
       model: chatConfig.model,
       prioritizeInstructor: chatConfig.prioritizeInstructor,
     }));
-  }, [input, chatConfig, addMessagesToActiveTab]);
+  }, [input, chatConfig, addMessagesToActiveTab, activeTab.course]);
 
   // Tab management
   const createNewTab = useCallback(() => {
@@ -249,7 +267,8 @@ export default function GlassChat() {
     const newTab: ChatTab = { 
       id, 
       title: `Chat ${tabs.length + 1}`, 
-      messages: [] 
+      messages: [],
+      course: COURSES[0] // Default to first course for new tabs
     };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(id);
@@ -286,12 +305,28 @@ export default function GlassChat() {
           // Create new tab if none exist
           const newId = Date.now();
           setActiveTabId(newId);
-          return [{ id: newId, title: "Chat 1", messages: [] }];
+          return [{ 
+            id: newId, 
+            title: "Chat 1", 
+            messages: [],
+            course: COURSES[0] // Default to first course
+          }];
         }
       }
       
       return newTabs;
     });
+  }, [activeTabId]);
+
+  // Course change handler - updates the current tab's course
+  const handleCourseChange = useCallback((newCourse: string) => {
+    setTabs(prev =>
+      prev.map(tab =>
+        tab.id === activeTabId
+          ? { ...tab, course: newCourse }
+          : tab
+      )
+    );
   }, [activeTabId]);
 
   // Event handlers
@@ -340,8 +375,10 @@ export default function GlassChat() {
           <ChatInput
             input={input}
             chatConfig={chatConfig}
+            currentCourse={activeTab.course}
             onInputChange={setInput}
             onConfigChange={handleConfigChange}
+            onCourseChange={handleCourseChange}
             onSend={sendMessage}
             onKeyDown={handleKeyDown}
           />
@@ -379,57 +416,64 @@ function TabBar({
   onNewTab
 }: TabBarProps) {
   return (
-    <div className="flex items-center bg-slate-800 rounded-t-2xl overflow-x-auto pl-7">
-      {tabs.map((tab) => (
-        <div
-          key={tab.id}
-          className={`flex items-center group px-3 py-2.5 border-r border-slate-700 text-sm select-none cursor-pointer ${
-            activeTabId === tab.id
-              ? "bg-slate-700 text-white rounded-sm"
-              : "bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-sm"
-          }`}
-          onClick={() => onTabClick(tab.id)}
-          onDoubleClick={() => onTabDoubleClick(tab.id, tab.title)}
-        >
-          {editingTab?.id === tab.id ? (
-            <input
-              value={editingTab.title}
-              autoFocus
-              onChange={(e) => onTabTitleChange(e.target.value)}
-              onBlur={() => onTabTitleSave(tab.id, editingTab.title)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onTabTitleSave(tab.id, editingTab.title);
-                if (e.key === "Escape") onTabTitleCancel();
-              }}
-              className="bg-slate-600 text-white rounded text-sm outline-none"
-            />
-          ) : (
-            <span>{tab.title}</span>
-          )}
-          
-          {tabs.length > 1 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onTabClose(tab.id);
-              }}
-              className="ml-3 px-2 py-0.5 -m-1 text-slate-400 group-hover:text-white opacity-0 group-hover:opacity-100 rounded-sm hover:bg-slate-600"
-            >
-              ×
-            </button>
-
-          )}
+    <div className="flex items-center bg-slate-800 rounded-t-2xl overflow-x-auto select-none">
+      {/* GP-TA Logo */}
+        <div className="px-2 h-6 mr-2 ml-3 flex items-center justify-center bg-gradient-to-br from-slate-500 to-blue-700 rounded-full text-xs font-bold text-white select-none">
+          GP-TA
         </div>
-      ))}
       
-      {tabs.length < MAX_NUMBER_OF_TABS && (
-        <button
-          onClick={onNewTab}
-          className="px-4 py-2 text-slate-400 hover:text-white"
-        >
-          +
-        </button>
-      )}
+      <div className="flex items-center">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={`flex items-center group px-3 py-2.5 text-sm select-none cursor-pointer ${
+              activeTabId === tab.id
+                ? "bg-slate-700 text-white rounded-sm"
+                : "bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-sm"
+            }`}
+            onClick={() => onTabClick(tab.id)}
+            onDoubleClick={() => onTabDoubleClick(tab.id, tab.title)}
+          >
+            {editingTab?.id === tab.id ? (
+              <input
+                value={editingTab.title}
+                autoFocus
+                onChange={(e) => onTabTitleChange(e.target.value)}
+                onBlur={() => onTabTitleSave(tab.id, editingTab.title)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onTabTitleSave(tab.id, editingTab.title);
+                  if (e.key === "Escape") onTabTitleCancel();
+                }}
+                className="bg-slate-600 text-white rounded text-sm outline-none"
+              />
+            ) : (
+              <span>{tab.title}</span>
+            )}
+            
+            {tabs.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTabClose(tab.id);
+                }}
+                className="ml-3 px-2 py-0.5 -m-1 text-slate-400 group-hover:text-white opacity-0 group-hover:opacity-100 rounded-sm hover:bg-slate-600"
+              >
+                ×
+              </button>
+
+            )}
+          </div>
+        ))}
+        
+        {tabs.length < MAX_NUMBER_OF_TABS && (
+          <button
+            onClick={onNewTab}
+            className="px-4 py-2 text-slate-400 hover:text-white"
+          >
+            +
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -438,8 +482,10 @@ function TabBar({
 interface ChatInputProps {
   input: string;
   chatConfig: ChatConfig;
+  currentCourse: string;
   onInputChange: (value: string) => void;
   onConfigChange: (key: keyof ChatConfig, value: string | boolean) => void;
+  onCourseChange: (course: string) => void;
   onSend: () => void;
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
 }
@@ -447,8 +493,10 @@ interface ChatInputProps {
 function ChatInput({
   input,
   chatConfig,
+  currentCourse,
   onInputChange,
   onConfigChange,
+  onCourseChange,
   onSend,
   onKeyDown
 }: ChatInputProps) {
@@ -459,8 +507,8 @@ function ChatInput({
         {/* Config Row */}
         <div className="flex items-center gap-3 mb-2">
           <select
-            value={chatConfig.course}
-            onChange={(e) => onConfigChange('course', e.target.value)}
+            value={currentCourse}
+            onChange={(e) => onCourseChange(e.target.value)}
             className="bg-slate-700 border border-white/20 text-sm rounded-md px-3 py-2 text-white"
           >
             {COURSES.map(course => (
@@ -532,13 +580,13 @@ function ChatInput({
 }
 
 // Message Bubble Component
-function MessageBubble({ role, text }: Message) {
+function MessageBubble({ role, text, course }: Message) {
   const isUser = role === "user";
   
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] break-words p-3 rounded-xl shadow-sm border ${
+        className={`max-w-[85%] break-words p-3 rounded-xl shadow-sm border relative group ${
           isUser
             ? "bg-white/20 text-white border-white/8 rounded-br-2xl"
             : "bg-white/6 text-white border-white/6 rounded-bl-2xl"
@@ -547,6 +595,13 @@ function MessageBubble({ role, text }: Message) {
         <div className="text-sm leading-5 whitespace-pre-wrap">
           {text}
         </div>
+        
+        {/* Show course tooltip on hover for user messages */}
+        {isUser && course && (
+          <div className="absolute bottom-full right-0 mb-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-80 whitespace-nowrap pointer-events-none z-10">
+            {course}
+          </div>
+        )}
       </div>
     </div>
   );
