@@ -37,7 +37,27 @@ const MODELS = [
 const ASSISTANT_GREETING_MESSAGE = "Hi, I'm GP-TA — how can I help with your course today?";
 const MAX_NUMBER_OF_TABS = 6;
 
+// Custom hook for theme detection
+function useTheme() {
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
+    
+    mediaQuery.addEventListener('change', handler);
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
+
+  return isDark;
+}
+
 export default function GlassChat() {
+  const isDark = useTheme();
+  
   // State management
   const [tabs, setTabs] = useState<ChatTab[]>(loadTabsFromStorage);
   const [activeTabId, setActiveTabId] = useState<number>(loadActiveTabIdFromStorage);
@@ -341,10 +361,85 @@ export default function GlassChat() {
     setChatConfig(prev => ({ ...prev, [key]: value }));
   };
 
+  // Theme-based class names
+  const themeClasses = {
+    background: isDark 
+      ? "bg-gradient-to-b from-slate-900 via-slate-800 to-slate-950 text-white" 
+      : "bg-gradient-to-b from-blue-50 via-white to-blue-100 text-gray-900",
+    
+    mainContainer: isDark 
+      ? "bg-white/6 backdrop-blur-lg border border-white/10" 
+      : "bg-white/70 backdrop-blur-lg border border-gray-200/50 shadow-xl",
+    
+    tabBar: isDark 
+      ? "bg-slate-800" 
+      : "bg-gray-100/80",
+    
+    activeTab: isDark 
+      ? "bg-slate-700 text-white border-b-2 border-blue-500" 
+      : "bg-white text-gray-900 border-b-2 border-blue-500",
+    
+    inactiveTab: isDark 
+      ? "bg-slate-800 text-slate-300 hover:bg-slate-700" 
+      : "bg-gray-100/80 text-gray-600 hover:bg-gray-200/60",
+    
+    inputArea: isDark 
+      ? "" 
+      : "bg-white/20",
+    
+    inputContainer: isDark 
+      ? "border border-white/20 bg-white/6" 
+      : "border border-gray-300/50 bg-gray-50/80 ",
+    
+    select: isDark 
+      ? "bg-slate-700 border border-white/20 text-white" 
+      : "bg-white border border-gray-300 text-gray-900",
+    
+    textarea: isDark 
+      ? "bg-slate-700 border border-white/20 placeholder-white/60 text-white" 
+      : "bg-white border border-gray-300 placeholder-gray-400 text-gray-900",
+    
+    sendButton: isDark 
+      ? "bg-slate-600 hover:bg-slate-500 border border-white/20 text-white" 
+      : "bg-blue-400 hover:bg-blue-300 hover:border-blue-400 border border-blue-500 text-white",
+    
+    userBubble: isDark 
+      ? "bg-white/20 text-white border-white/8" 
+      : "bg-slate-100 text-black border-slate-500/20",
+    
+    assistantBubble: isDark 
+      ? "bg-white/6 text-white border-white/6" 
+      : "bg-white text-gray-900 border-gray-200/50 shadow-sm",
+    
+    footer: isDark 
+      ? "text-white/40" 
+      : "text-gray-500",
+    
+    closeButton: isDark 
+      ? "text-slate-400 group-hover:text-white hover:bg-slate-600" 
+      : "text-gray-400 group-hover:text-gray-600 hover:bg-gray-200",
+    
+    tooltip: isDark 
+      ? "bg-slate-800 text-white" 
+      : "bg-slate-300 text-black",
+    
+    editInput: isDark 
+      ? "bg-slate-600 text-white" 
+      : "bg-white text-gray-900",
+    
+    label: isDark 
+      ? "text-white" 
+      : "text-gray-700",
+    
+    logo: isDark 
+      ? "bg-gradient-to-br from-slate-500 to-blue-700" 
+      : "bg-gradient-to-br from-slate-500 to-blue-700"
+  };
+
   return (
-    <div className="h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-950 flex flex-col text-white relative">
+    <div className={`h-screen ${themeClasses.background} flex flex-col relative`}>
       <div className="relative flex-1 flex justify-center items-stretch my-3">
-        <div className="w-full max-w-4xl flex flex-col rounded-2xl bg-white/6 backdrop-blur-lg border border-white/10 shadow-2xl relative">
+        <div className={`w-full max-w-4xl flex flex-col rounded-2xl ${themeClasses.mainContainer} shadow-2xl relative`}>
           
           {/* Tab Bar */}
           <TabBar
@@ -358,6 +453,7 @@ export default function GlassChat() {
             onTabTitleCancel={() => setEditingTab(null)}
             onTabTitleChange={(title) => setEditingTab(prev => prev ? { ...prev, title } : null)}
             onNewTab={createNewTab}
+            themeClasses={themeClasses}
           />
 
           {/* Messages */}
@@ -367,7 +463,7 @@ export default function GlassChat() {
             style={{ backdropFilter: "blur(6px)" }}
           >
             {activeTab.messages.map((message) => (
-              <MessageBubble key={message.id} {...message} />
+              <MessageBubble key={message.id} {...message} themeClasses={themeClasses} />
             ))}
           </div>
 
@@ -381,6 +477,7 @@ export default function GlassChat() {
             onCourseChange={handleCourseChange}
             onSend={sendMessage}
             onKeyDown={handleKeyDown}
+            themeClasses={themeClasses}
           />
           
         </div>
@@ -401,6 +498,7 @@ interface TabBarProps {
   onTabTitleCancel: () => void;
   onTabTitleChange: (title: string) => void;
   onNewTab: () => void;
+  themeClasses: any;
 }
 
 function TabBar({
@@ -413,14 +511,15 @@ function TabBar({
   onTabTitleSave,
   onTabTitleCancel,
   onTabTitleChange,
-  onNewTab
+  onNewTab,
+  themeClasses
 }: TabBarProps) {
   return (
-    <div className="flex items-center bg-slate-800 rounded-t-2xl overflow-x-auto select-none">
+    <div className={`flex items-center ${themeClasses.tabBar} rounded-t-2xl overflow-x-auto select-none`}>
       {/* GP-TA Logo */}
-        <div className="px-2 h-6 mr-2 ml-3 flex items-center justify-center bg-gradient-to-br from-slate-500 to-blue-700 rounded-full text-xs font-bold text-white select-none">
-          GP-TA
-        </div>
+      <div className={`px-2 h-6 mr-2 ml-3 flex items-center justify-center ${themeClasses.logo} rounded-full text-xs font-bold text-white select-none`}>
+        GP-TA
+      </div>
       
       <div className="flex items-center">
         {tabs.map((tab) => (
@@ -428,9 +527,9 @@ function TabBar({
             key={tab.id}
             className={`flex items-center group px-3 py-2.5 text-sm select-none cursor-pointer ${
               activeTabId === tab.id
-                ? "bg-slate-700 text-white rounded-sm"
-                : "bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-sm"
-            }`}
+                ? themeClasses.activeTab
+                : themeClasses.inactiveTab
+            } rounded-sm`}
             onClick={() => onTabClick(tab.id)}
             onDoubleClick={() => onTabDoubleClick(tab.id, tab.title)}
           >
@@ -444,7 +543,7 @@ function TabBar({
                   if (e.key === "Enter") onTabTitleSave(tab.id, editingTab.title);
                   if (e.key === "Escape") onTabTitleCancel();
                 }}
-                className="bg-slate-600 text-white rounded text-sm outline-none"
+                className={`${themeClasses.editInput} rounded text-sm outline-none`}
               />
             ) : (
               <span>{tab.title}</span>
@@ -456,11 +555,10 @@ function TabBar({
                   e.stopPropagation();
                   onTabClose(tab.id);
                 }}
-                className="ml-3 px-2 py-0.5 -m-1 text-slate-400 group-hover:text-white opacity-0 group-hover:opacity-100 rounded-sm hover:bg-slate-600"
+                className={`ml-3 px-2 py-0.5 -m-1 opacity-0 group-hover:opacity-100 rounded-sm ${themeClasses.closeButton}`}
               >
                 ×
               </button>
-
             )}
           </div>
         ))}
@@ -468,7 +566,7 @@ function TabBar({
         {tabs.length < MAX_NUMBER_OF_TABS && (
           <button
             onClick={onNewTab}
-            className="px-4 py-2 text-slate-400 hover:text-white"
+            className={`px-4 py-2 ${themeClasses.inactiveTab.includes('text-slate-300') ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}
           >
             +
           </button>
@@ -488,6 +586,7 @@ interface ChatInputProps {
   onCourseChange: (course: string) => void;
   onSend: () => void;
   onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
+  themeClasses: any;
 }
 
 function ChatInput({
@@ -498,18 +597,19 @@ function ChatInput({
   onConfigChange,
   onCourseChange,
   onSend,
-  onKeyDown
+  onKeyDown,
+  themeClasses
 }: ChatInputProps) {
   return (
-    <div className="bg-white/6 absolute bottom-0 left-0 right-0 flex flex-col items-center gap-2 px-4 pb-1">
-      <div className="p-4 rounded-xl w-full shadow-lg border border-white/20">
+    <div className={`${themeClasses.inputArea} absolute bottom-0 left-0 right-0 flex flex-col items-center gap-2 px-4 pb-1 rounded-b-2xl`} style={{ backdropFilter: "blur(6px)" }}>
+      <div className={`p-4 rounded-xl w-full shadow-lg ${themeClasses.inputContainer}`}>
         
         {/* Config Row */}
         <div className="flex items-center gap-3 mb-2">
           <select
             value={currentCourse}
             onChange={(e) => onCourseChange(e.target.value)}
-            className="bg-slate-700 border border-white/20 text-sm rounded-md px-3 py-2 text-white"
+            className={`${themeClasses.select} text-sm rounded-md px-3 py-2`}
           >
             {COURSES.map(course => (
               <option key={course} value={course} className="text-black">
@@ -524,9 +624,9 @@ function ChatInput({
               type="checkbox"
               checked={chatConfig.prioritizeInstructor}
               onChange={(e) => onConfigChange('prioritizeInstructor', e.target.checked)}
-              className="w-4 h-4 rounded bg-white/6 border-white/6"
+              className="w-4 h-4 rounded"
             />
-            <label htmlFor="prioritize" className="select-none text-white">
+            <label htmlFor="prioritize" className={`select-none ${themeClasses.label}`}>
               Prioritize instructor answers
             </label>
           </div>
@@ -534,7 +634,7 @@ function ChatInput({
           <select
             value={chatConfig.model}
             onChange={(e) => onConfigChange('model', e.target.value)}
-            className="ml-auto bg-slate-600 border border-white/20 text-xs rounded-md px-2 py-2 text-white"
+            className={`ml-auto ${themeClasses.select} text-xs rounded-md px-2 py-2`}
           >
             {MODELS.map(model => (
               <option key={model.value} value={model.value} className="text-black">
@@ -552,12 +652,12 @@ function ChatInput({
             onKeyDown={onKeyDown}
             placeholder="Type your question..."
             rows={1}
-            className="resize-none flex-1 min-h-[44px] max-h-32 rounded-xl p-3 bg-slate-700 border border-white/20 placeholder-white/60 text-sm text-white"
+            className={`resize-none flex-1 min-h-[44px] max-h-32 rounded-xl p-3 ${themeClasses.textarea} text-sm`}
           />
           <button
             onClick={onSend}
             aria-label="Send"
-            className="flex items-center justify-center w-12 h-12 rounded-xl bg-slate-600 hover:bg-slate-500 border border-white/20 shadow-sm active:scale-95 text-white"
+            className={`flex items-center justify-center w-12 h-12 rounded-xl ${themeClasses.sendButton} shadow-sm active:scale-95`}
           >
             <SendIcon />
           </button>
@@ -565,7 +665,7 @@ function ChatInput({
       </div>
       
       {/* Footer */}
-      <div className="text-xs text-white/40 text-center">
+      <div className={`text-xs ${themeClasses.footer} text-center`}>
         GP-TA can make mistakes. Check important info • Made with love by{" "}
         <a
           href="https://linkedin.com/in/davenfroberg"
@@ -580,7 +680,11 @@ function ChatInput({
 }
 
 // Message Bubble Component
-function MessageBubble({ role, text, course }: Message) {
+interface MessageBubbleProps extends Message {
+  themeClasses: any;
+}
+
+function MessageBubble({ role, text, course, themeClasses }: MessageBubbleProps) {
   const isUser = role === "user";
   
   return (
@@ -588,8 +692,8 @@ function MessageBubble({ role, text, course }: Message) {
       <div
         className={`max-w-[85%] break-words p-3 rounded-xl shadow-sm border relative group ${
           isUser
-            ? "bg-white/20 text-white border-white/8 rounded-br-2xl"
-            : "bg-white/6 text-white border-white/6 rounded-bl-2xl"
+            ? `${themeClasses.userBubble} rounded-br-2xl`
+            : `${themeClasses.assistantBubble} rounded-bl-2xl`
         }`}
       >
         <div className="text-sm leading-5 whitespace-pre-wrap">
@@ -598,7 +702,7 @@ function MessageBubble({ role, text, course }: Message) {
         
         {/* Show course tooltip on hover for user messages */}
         {isUser && course && (
-          <div className="absolute bottom-full right-0 mb-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-80 whitespace-nowrap pointer-events-none z-10">
+          <div className={`absolute bottom-full right-0 mb-2 px-2 py-1 ${themeClasses.tooltip} text-xs rounded opacity-70 whitespace-nowrap pointer-events-none z-10`}>
             {course}
           </div>
         )}
