@@ -34,7 +34,7 @@ const MODELS = [
   { value: "gpt-5", label: "GPT-5" },
   { value: "gpt-5-mini", label: "GPT-5-mini" }
 ];
-const ASSISTANT_GREETING_MESSAGE = "Hi — how can I help with your course today?";
+const ASSISTANT_GREETING_MESSAGE = "Hi, I'm GP-TA — how can I help with your course today?";
 const MAX_NUMBER_OF_TABS = 6;
 
 export default function GlassChat() {
