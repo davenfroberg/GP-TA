@@ -1,19 +1,26 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { KeyboardEvent } from "react";
+import he from "he";
 
 // Types
+interface Citation {
+  title: string;
+  url: string;
+}
+
 interface Message {
   id: number;
   role: "user" | "assistant";
   text: string;
   course?: string; // Add course to message data for user messages
+  citations?: Citation[];
 }
 
 interface ChatTab {
   id: number;
   title: string;
   messages: Message[];
-  course: string; // Add course to tab data
+  selectedCourse: string; 
 }
 
 interface ChatConfig {
@@ -105,7 +112,7 @@ export default function GlassChat() {
       id: Date.now(), 
       title: "Chat 1", 
       messages: [],
-      course: COURSES[0] // Default to first course
+      selectedCourse: COURSES[0] // Default to first course
     }];
   }
 
@@ -170,6 +177,11 @@ export default function GlassChat() {
         messageBufferRef.current = "";
         updateAssistantMessage("");
         break;
+      case "citations":
+        if (data.citations && currentAssistantIdRef.current) {
+          addCitationsToAssistantMessage(data.citations);
+        }
+        break;
     }
   }, [activeTabId]);
 
@@ -191,21 +203,28 @@ export default function GlassChat() {
     );
   }, [activeTabId]);
 
-  const addMessagesToActiveTab = useCallback((newMessages: Message[]) => {
+  const addCitationsToAssistantMessage = useCallback((citations: Citation[]) => {
     setTabs(prev =>
       prev.map(tab =>
         tab.id === activeTabId
-          ? { ...tab, messages: [...tab.messages, ...newMessages] }
+          ? {
+              ...tab,
+              messages: tab.messages.map(m =>
+                m.role === "assistant" && m.id === currentAssistantIdRef.current
+                  ? { ...m, citations }
+                  : m
+              ),
+            }
           : tab
       )
     );
   }, [activeTabId]);
 
-  const clearActiveTabMessages = useCallback(() => {
+  const addMessagesToActiveTab = useCallback((newMessages: Message[]) => {
     setTabs(prev =>
       prev.map(tab =>
         tab.id === activeTabId
-          ? { ...tab, messages: [] }
+          ? { ...tab, messages: [...tab.messages, ...newMessages] }
           : tab
       )
     );
@@ -257,7 +276,7 @@ export default function GlassChat() {
       id: userMsgId, 
       role: "user", 
       text: trimmed,
-      course: activeTab.course // Store the course with the user message
+      course: activeTab.selectedCourse // Store the course with the user message
     };
     const assistantMsg: Message = { 
       id: assistantMsgId, 
@@ -274,21 +293,22 @@ export default function GlassChat() {
     wsRef.current.send(JSON.stringify({
       action: "chat",
       message: trimmed,
-      class: activeTab.course.toLowerCase().replace(" ", ""),
+      class: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
       model: chatConfig.model,
       prioritizeInstructor: chatConfig.prioritizeInstructor,
     }));
-  }, [input, chatConfig, addMessagesToActiveTab, activeTab.course]);
+  }, [input, chatConfig, addMessagesToActiveTab, activeTab.selectedCourse]);
 
   // Tab management
   const createNewTab = useCallback(() => {
     if (tabs.length >= MAX_NUMBER_OF_TABS) return;
     const id = Date.now();
+    let nextNumber = tabs.length + 1;
     const newTab: ChatTab = { 
       id, 
-      title: `Chat ${tabs.length + 1}`, 
+      title: `Chat ${nextNumber}`, 
       messages: [],
-      course: COURSES[0] // Default to first course for new tabs
+      selectedCourse: COURSES[0] // Default to first course for new tabs
     };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(id);
@@ -329,7 +349,7 @@ export default function GlassChat() {
             id: newId, 
             title: "Chat 1", 
             messages: [],
-            course: COURSES[0] // Default to first course
+            selectedCourse: COURSES[0] // Default to first course
           }];
         }
       }
@@ -343,7 +363,7 @@ export default function GlassChat() {
     setTabs(prev =>
       prev.map(tab =>
         tab.id === activeTabId
-          ? { ...tab, course: newCourse }
+          ? { ...tab, selectedCourse: newCourse }
           : tab
       )
     );
@@ -471,7 +491,7 @@ export default function GlassChat() {
           <ChatInput
             input={input}
             chatConfig={chatConfig}
-            currentCourse={activeTab.course}
+            currentCourse={activeTab.selectedCourse}
             onInputChange={setInput}
             onConfigChange={handleConfigChange}
             onCourseChange={handleCourseChange}
@@ -684,26 +704,91 @@ interface MessageBubbleProps extends Message {
   themeClasses: any;
 }
 
-function MessageBubble({ role, text, course, themeClasses }: MessageBubbleProps) {
+function MessageBubble({ role, text, course, citations, themeClasses }: MessageBubbleProps) {
+  const [visibleCitations, setVisibleCitations] = useState<number>(0);
+  const [hasAnimated, setHasAnimated] = useState<boolean>(false);
   const isUser = role === "user";
+
+  // Initialize state based on whether we have citations
+  useEffect(() => {
+    if (citations && citations.length > 0) {
+      if (!hasAnimated) {
+        // First time seeing citations - animate them in
+        setVisibleCitations(0);
+        setHasAnimated(true);
+        
+        const timeouts: number[] = [];
+        
+        citations.forEach((_, index) => {
+          const timeout = setTimeout(() => {
+            setVisibleCitations(prev => prev + 1);
+          }, 50 + (index * 75));
+          timeouts.push(timeout);
+        });
+        
+        return () => {
+          timeouts.forEach(timeout => clearTimeout(timeout));
+        };
+      } else {
+        // Already animated - show all immediately
+        setVisibleCitations(citations.length);
+      }
+    }
+  }, [citations]);
   
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] break-words p-3 rounded-xl shadow-sm border relative group ${
-          isUser
-            ? `${themeClasses.userBubble} rounded-br-2xl`
-            : `${themeClasses.assistantBubble} rounded-bl-2xl`
-        }`}
-      >
-        <div className="text-sm leading-5 whitespace-pre-wrap">
-          {text}
+      <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-[85%]`}>
+        <div
+          className={`break-words p-3 rounded-xl shadow-sm border relative group ${
+            isUser
+              ? `${themeClasses.userBubble} rounded-br-2xl`
+              : `${themeClasses.assistantBubble} rounded-bl-2xl`
+          }`}
+        >
+          <div className="text-sm leading-5 whitespace-pre-wrap">
+            {text}
+          </div>
+          
+          {isUser && course && (
+            <div className={`absolute bottom-full right-0 mb-2 px-2 py-1 ${themeClasses.tooltip} text-xs rounded opacity-70 whitespace-nowrap pointer-events-none z-10`}>
+              {course}
+            </div>
+          )}
         </div>
-        
-        {/* Show course tooltip on hover for user messages */}
-        {isUser && course && (
-          <div className={`absolute bottom-full right-0 mb-2 px-2 py-1 ${themeClasses.tooltip} text-xs rounded opacity-70 whitespace-nowrap pointer-events-none z-10`}>
-            {course}
+
+        {/* Citations */}
+        {!isUser && citations && citations.length > 0 && (
+          <div className="mt-2 space-y-1 w-full">
+            <div className={`text-xs ${themeClasses.label} mb-1 opacity-70`}>
+              Related Piazza threads:
+            </div>
+            {citations.map((citation, index) => (
+              <div
+                key={index}
+                className={`transition-all duration-300 ease-out transform ${
+                  index < visibleCitations
+                    ? 'opacity-100 translate-y-0'
+                    : 'opacity-0 translate-y-2'
+                }`}
+              >
+                <a
+                  href={citation.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block p-2 rounded-lg text-xs border transition-colors hover:opacity-80 ${
+                    themeClasses.assistantBubble
+                  } hover:scale-[1.02] transform transition-transform w-full`}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="flex-shrink-0 w-1 h-1 rounded-full bg-blue-500 mt-1.5"></div>
+                    <span className="leading-4">
+                      {he.decode(citation.title)}
+                    </span>
+                  </div>
+                </a>
+              </div>
+            ))}
           </div>
         )}
       </div>

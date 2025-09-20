@@ -157,6 +157,23 @@ def format_context(context_chunks):
     formatted.append("===== CONTEXT END =====")
     return "\n".join(formatted)
 
+def format_citations(top_chunks):
+    closeness_threshold = 0.7
+    citations = []
+    top_score = top_chunks[0]['_score']
+    for chunk in top_chunks:
+        fields = chunk['fields'] if 'fields' in chunk else chunk
+        class_id = fields['class_id']
+        post_id = fields['root_id']
+        post_title = fields.get('title', 'Piazza Post')
+        post_url = f"https://piazza.com/class/{class_id}/post/{post_id}"
+        # Exclude generic welcome post
+        if post_title == "Welcome to Piazza!":
+            continue
+        if {"title": post_title, "url": post_url} not in citations and chunk['_score'] >= closeness_threshold * top_score:
+            citations.append({"title": post_title, "url": post_url})
+    return citations
+
 def lambda_handler(event, context):
     connection_id = event["requestContext"]["connectionId"]
     domain_name = event["requestContext"]["domainName"]
@@ -238,6 +255,16 @@ def lambda_handler(event, context):
                     Data=json.dumps(payload),
                     ConnectionId=connection_id
                 )
+
+        citations_message = {
+            "citations": format_citations(top_chunks),
+            "type": "citations"
+        }
+
+        apigw_management.post_to_connection(
+            Data=json.dumps(citations_message),
+            ConnectionId=connection_id
+        )
     except Exception as e:
         print(f"Error: {e}")
         error_message = {
