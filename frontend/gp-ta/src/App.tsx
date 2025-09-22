@@ -42,6 +42,14 @@ const MODELS = [
   { value: "gpt-5-mini", label: "GPT-5-mini" }
 ];
 const ASSISTANT_GREETING_MESSAGE = "Hi, I'm GP-TA — how can I help with your course today?";
+const EXAMPLE_PROMPTS = [
+  "when is homework 1 due?",
+  "how do I do question 5 on homework 2?",
+  "what topics will be on the midterm?",
+  "I missed an iClicker, is this okay?",
+  "where are office hours held?",
+  "how do I register for quiz 3?"
+];
 const MAX_NUMBER_OF_TABS = 6;
 
 // Custom hook for theme detection
@@ -75,11 +83,11 @@ export default function GlassChat() {
   const [input, setInput] = useState<string>("");
   const [editingTab, setEditingTab] = useState<{id: number, title: string} | null>(null);
 
-  // Refs
+  // Refs - now track per tab
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const messageBufferRef = useRef<string>("");
-  const currentAssistantIdRef = useRef<number | null>(null);
+  const wsConnectionsRef = useRef<Map<number, WebSocket>>(new Map()); // Map tabId -> WebSocket
+  const messageBufferRef = useRef<Map<number, string>>(new Map()); // Map tabId -> message buffer
+  const currentAssistantIdRef = useRef<Map<number, number>>(new Map()); // Map tabId -> assistant message ID
 
   // Derived state
   const activeTab = tabs.find(t => t.id === activeTabId)!;
@@ -125,7 +133,7 @@ export default function GlassChat() {
     localStorage.setItem(BROWSER_STORAGE_KEYS.ACTIVE_TAB_ID, activeTabId.toString());
   }, [activeTabId]);
 
-  // Auto-scroll messages
+  // Auto-scroll messages (only for active tab)
   useEffect(() => {
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
@@ -134,26 +142,43 @@ export default function GlassChat() {
 
   // Initialize greeting for new tabs
   useEffect(() => {
-    if (activeTab.messages.length === 0) {
-      startGreeting();
-    }
+    // Remove the greeting initialization since we'll show example prompts instead
   }, [activeTabId, tabs]);
 
-  // WebSocket management
+  // WebSocket management - create connections per tab
+  const getOrCreateWebSocket = useCallback((tabId: number): WebSocket => {
+    let ws = wsConnectionsRef.current.get(tabId);
+    
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      ws = new WebSocket(WEBSOCKET_URL);
+      wsConnectionsRef.current.set(tabId, ws);
+      
+      ws.onopen = () => console.log(`WebSocket connected for tab ${tabId}`);
+      ws.onclose = () => {
+        console.log(`WebSocket disconnected for tab ${tabId}`);
+        wsConnectionsRef.current.delete(tabId);
+      };
+      ws.onerror = (err) => console.error(`WebSocket error for tab ${tabId}`, err);
+      ws.onmessage = (event) => handleWebSocketMessage(event, tabId);
+    }
+    
+    return ws;
+  }, []);
+
+  // Cleanup WebSocket connections when component unmounts
   useEffect(() => {
-    const ws = new WebSocket(WEBSOCKET_URL);
-    wsRef.current = ws;
+    return () => {
+      wsConnectionsRef.current.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        }
+      });
+      wsConnectionsRef.current.clear();
+    };
+  }, []);
 
-    ws.onopen = () => console.log("WebSocket connected");
-    ws.onclose = () => console.log("WebSocket disconnected");
-    ws.onerror = (err) => console.error("WebSocket error", err);
-    ws.onmessage = handleWebSocketMessage;
-
-    return () => ws.close();
-  }, [activeTabId]);
-
-  // WebSocket message handler
-  const handleWebSocketMessage = useCallback((event: MessageEvent) => {
+  // WebSocket message handler - now takes tabId as parameter
+  const handleWebSocketMessage = useCallback((event: MessageEvent, tabId: number) => {
     let data;
     try {
       data = JSON.parse(event.data);
@@ -164,36 +189,38 @@ export default function GlassChat() {
 
     switch (data.type) {
       case "chat_done":
-        messageBufferRef.current = "";
+        messageBufferRef.current.delete(tabId);
         break;
       case "chat_chunk":
-        messageBufferRef.current += data.message;
-        updateAssistantMessage(messageBufferRef.current);
+        const currentBuffer = messageBufferRef.current.get(tabId) || "";
+        const newBuffer = currentBuffer + data.message;
+        messageBufferRef.current.set(tabId, newBuffer);
+        updateAssistantMessage(tabId, newBuffer);
         break;
       case "progress_update":
-        updateAssistantMessage(data.message);
+        updateAssistantMessage(tabId, data.message);
         break;
       case "chat_start":
-        messageBufferRef.current = "";
-        updateAssistantMessage("");
+        messageBufferRef.current.set(tabId, "");
+        updateAssistantMessage(tabId, "");
         break;
       case "citations":
-        if (data.citations && currentAssistantIdRef.current) {
-          addCitationsToAssistantMessage(data.citations);
+        if (data.citations && currentAssistantIdRef.current.has(tabId)) {
+          addCitationsToAssistantMessage(tabId, data.citations);
         }
         break;
     }
-  }, [activeTabId]);
+  }, []);
 
-  // Message management
-  const updateAssistantMessage = useCallback((text: string) => {
+  // Message management - now takes tabId as parameter
+  const updateAssistantMessage = useCallback((tabId: number, text: string) => {
     setTabs(prev =>
       prev.map(tab =>
-        tab.id === activeTabId
+        tab.id === tabId
           ? {
               ...tab,
               messages: tab.messages.map(m =>
-                m.role === "assistant" && m.id === currentAssistantIdRef.current
+                m.role === "assistant" && m.id === currentAssistantIdRef.current.get(tabId)
                   ? { ...m, text }
                   : m
               ),
@@ -201,16 +228,16 @@ export default function GlassChat() {
           : tab
       )
     );
-  }, [activeTabId]);
+  }, []);
 
-  const addCitationsToAssistantMessage = useCallback((citations: Citation[]) => {
+  const addCitationsToAssistantMessage = useCallback((tabId: number, citations: Citation[]) => {
     setTabs(prev =>
       prev.map(tab =>
-        tab.id === activeTabId
+        tab.id === tabId
           ? {
               ...tab,
               messages: tab.messages.map(m =>
-                m.role === "assistant" && m.id === currentAssistantIdRef.current
+                m.role === "assistant" && m.id === currentAssistantIdRef.current.get(tabId)
                   ? { ...m, citations }
                   : m
               ),
@@ -218,24 +245,24 @@ export default function GlassChat() {
           : tab
       )
     );
-  }, [activeTabId]);
+  }, []);
 
-  const addMessagesToActiveTab = useCallback((newMessages: Message[]) => {
+  const addMessagesToTab = useCallback((tabId: number, newMessages: Message[]) => {
     setTabs(prev =>
       prev.map(tab =>
-        tab.id === activeTabId
+        tab.id === tabId
           ? { ...tab, messages: [...tab.messages, ...newMessages] }
           : tab
       )
     );
-  }, [activeTabId]);
+  }, []);
 
   // Greeting animation
   const startGreeting = useCallback(() => {
     const assistantId = Date.now();
     
     // Add empty assistant message
-    addMessagesToActiveTab([{ id: assistantId, role: "assistant", text: "" }]);
+    addMessagesToTab(activeTabId, [{ id: assistantId, role: "assistant", text: "" }]);
 
     // Type out greeting character by character
     let index = 0;
@@ -262,21 +289,35 @@ export default function GlassChat() {
     };
 
     typeChar();
-  }, [activeTabId, addMessagesToActiveTab]);
+  }, [activeTabId, addMessagesToTab]);
 
-  // Message sending
+  // Message sending - now uses per-tab WebSocket connections
   const sendMessage = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (!trimmed) return;
 
+    const ws = getOrCreateWebSocket(activeTabId);
+    if (ws.readyState !== WebSocket.OPEN) {
+      console.log("WebSocket not ready, waiting...");
+      // Wait for connection to open
+      ws.addEventListener('open', () => {
+        sendMessageToWebSocket(ws, trimmed);
+      }, { once: true });
+      return;
+    }
+
+    sendMessageToWebSocket(ws, trimmed);
+  }, [input, activeTabId, getOrCreateWebSocket]);
+
+  const sendMessageToWebSocket = useCallback((ws: WebSocket, message: string) => {
     const userMsgId = Date.now();
     const assistantMsgId = userMsgId + 1;
     
     const userMsg: Message = { 
       id: userMsgId, 
       role: "user", 
-      text: trimmed,
-      course: activeTab.selectedCourse // Store the course with the user message
+      text: message,
+      course: activeTab.selectedCourse
     };
     const assistantMsg: Message = { 
       id: assistantMsgId, 
@@ -284,20 +325,21 @@ export default function GlassChat() {
       text: "Finding relevant Piazza posts..." 
     };
 
-    currentAssistantIdRef.current = assistantMsgId;
-    addMessagesToActiveTab([userMsg, assistantMsg]);
+    // Track this assistant message for the current tab
+    currentAssistantIdRef.current.set(activeTabId, assistantMsgId);
+    addMessagesToTab(activeTabId, [userMsg, assistantMsg]);
     setInput("");
-    messageBufferRef.current = "";
+    messageBufferRef.current.set(activeTabId, "");
 
-    // Send WebSocket message using the current tab's course
-    wsRef.current.send(JSON.stringify({
+    // Send WebSocket message (no need for tabId since each tab has its own connection)
+    ws.send(JSON.stringify({
       action: "chat",
-      message: trimmed,
+      message: message,
       class: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
       model: chatConfig.model,
       prioritizeInstructor: chatConfig.prioritizeInstructor,
     }));
-  }, [input, chatConfig, addMessagesToActiveTab, activeTab.selectedCourse]);
+  }, [activeTabId, activeTab.selectedCourse, chatConfig, addMessagesToTab]);
 
   // Tab management
   const createNewTab = useCallback(() => {
@@ -335,6 +377,16 @@ export default function GlassChat() {
       
       const tabIndex = prev.findIndex(t => t.id === tabId);
       const newTabs = prev.filter(t => t.id !== tabId);
+
+      // Clean up refs and WebSocket connection for closed tab
+      messageBufferRef.current.delete(tabId);
+      currentAssistantIdRef.current.delete(tabId);
+      
+      const ws = wsConnectionsRef.current.get(tabId);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+      wsConnectionsRef.current.delete(tabId);
 
       // Handle active tab switching if we're closing the active tab
       if (tabId === activeTabId) {
@@ -482,9 +534,18 @@ export default function GlassChat() {
             className="absolute top-[42px] bottom-[153px] left-0 right-0 overflow-y-auto p-6 space-y-3 scrollbar-thin scrollbar-thumb-slate-600/10 scrollbar-track-transparent"
             style={{ backdropFilter: "blur(6px)" }}
           >
-            {activeTab.messages.map((message) => (
-              <MessageBubble key={message.id} {...message} themeClasses={themeClasses} />
-            ))}
+            {activeTab.messages.length === 0 ? (
+              <ExamplePrompts themeClasses={themeClasses} />
+            ) : (
+              activeTab.messages.map((message, index) => (
+                <MessageBubble 
+                  key={message.id} 
+                  {...message} 
+                  themeClasses={themeClasses} 
+                  isFirstMessage={index === 0}
+                />
+              ))
+            )}
           </div>
 
           {/* Input Area */}
@@ -500,6 +561,94 @@ export default function GlassChat() {
             themeClasses={themeClasses}
           />
           
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Example Prompts Component
+interface ExamplePromptsProps {
+  themeClasses: any;
+}
+
+function ExamplePrompts({ themeClasses }: ExamplePromptsProps) {
+  const [currentText, setCurrentText] = useState<string>("");
+  const [currentPromptIndex, setCurrentPromptIndex] = useState<number>(0);
+  const [isTyping, setIsTyping] = useState<boolean>(true);
+
+  useEffect(() => {
+    const currentPrompt = EXAMPLE_PROMPTS[currentPromptIndex];
+    
+    if (isTyping) {
+      // Typing phase
+      if (currentText.length < currentPrompt.length) {
+        const timeout = setTimeout(() => {
+          setCurrentText(currentPrompt.slice(0, currentText.length + 1));
+        }, 40 + Math.random() * 90); // Variable typing speed for natural feel
+        
+        return () => clearTimeout(timeout);
+      } else {
+        // Finished typing, wait then start backspacing
+        const timeout = setTimeout(() => {
+          setIsTyping(false);
+        }, 2000); // Wait 2 seconds before backspacing
+        
+        return () => clearTimeout(timeout);
+      }
+    } else {
+      // Backspacing phase
+      if (currentText.length > 0) {
+        const timeout = setTimeout(() => {
+          setCurrentText(currentText.slice(0, -1));
+        }, 30); // Faster backspacing
+        
+        return () => clearTimeout(timeout);
+      } else {
+        // Finished backspacing, move to next prompt
+        const timeout = setTimeout(() => {
+          setCurrentPromptIndex((prev) => (prev + 1) % EXAMPLE_PROMPTS.length);
+          setIsTyping(true);
+        }, 500); // Brief pause before next prompt
+        
+        return () => clearTimeout(timeout);
+      }
+    }
+  }, [currentText, currentPromptIndex, isTyping]);
+
+  return (
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center">
+      
+        {/* Main Title */}
+        <h1 className={`text-3xl font-bold mb-2 ${themeClasses.label}`}>
+          Welcome to GP-TA
+        </h1>
+        
+        {/* Subtitle */}
+        <p className={`text-lg opacity-70 mb-8 ${themeClasses.label}`}>
+          Your AI Piazza companion
+        </p>
+        
+        {/* Animated Example Prompt */}
+        <div className="max-w-md mx-auto">
+          <p className={`text-sm opacity-60 mb-3 ${themeClasses.label}`}>
+            Try asking something like:
+          </p>
+          
+          <div className={`relative p-4 rounded-xl border ${themeClasses.inputContainer} min-h-[60px] flex items-center justify-center`}>
+            <span className={`text-lg ${themeClasses.label}`}>
+              {currentText}
+              <span className={`inline-block w-0.5 h-6 ml-1 ${isTyping ? 'animate-pulse' : ''} ${themeClasses.label === 'text-white' ? 'bg-white' : 'bg-gray-900'}`} />
+            </span>
+          </div>
+        </div>
+        
+        {/* Helpful hint */}
+        <div className="max-w-md mx-auto">
+          <p className={`text-xs opacity-50 mt-6 ${themeClasses.label}`}>
+            GP-TA answers are based only on your course's Piazza posts. <br/>If something hasn't been discussed there, GP-TA won't know about it.
+          </p>
         </div>
       </div>
     </div>
@@ -702,9 +851,10 @@ function ChatInput({
 // Message Bubble Component
 interface MessageBubbleProps extends Message {
   themeClasses: any;
+  isFirstMessage?: boolean;
 }
 
-function MessageBubble({ role, text, course, citations, themeClasses }: MessageBubbleProps) {
+function MessageBubble({ role, text, course, citations, themeClasses, isFirstMessage }: MessageBubbleProps) {
   const [visibleCitations, setVisibleCitations] = useState<number>(0);
   const [hasAnimated, setHasAnimated] = useState<boolean>(false);
   const isUser = role === "user";
@@ -737,7 +887,7 @@ function MessageBubble({ role, text, course, citations, themeClasses }: MessageB
   }, [citations]);
   
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} ${isFirstMessage ? "mt-8" : ""}`}>
       <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-[85%]`}>
         <div
           className={`break-words p-3 rounded-xl shadow-sm border relative group ${
