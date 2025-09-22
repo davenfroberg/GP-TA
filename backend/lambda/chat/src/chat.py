@@ -73,7 +73,7 @@ def get_question_context(table, blob_id, prioritize_instructor):
         KeyConditionExpression=boto3.dynamodb.conditions.Key('parent_id').eq(blob_id)
     )
     answers = [item for item in resp.get('Items', []) if item.get('type') in ['i_answer', 's_answer', 'answer']]
-    question_title = answers[0]['title'] if answers else "Unknown Title"
+    question_title = next((item['title'] for item in resp.get('Items', []) if item.get('type') == 'question'), 'Unknown title')
     answer_chunks = {}
     for item in answers:
         answer_chunks.setdefault(item['id'], []).append(item['chunk_text'])

@@ -7,7 +7,7 @@ from urllib.parse import urlparse, parse_qs
 import re
 from botocore.exceptions import ClientError
 
-SECRET_NAME = "gmail_oauth"
+SECRET_NAME = "gmail_new"
 REGION_NAME = "us-west-2"
 LABEL_NAME = "piazza-project"
 SQS_QUEUE_URL = "https://sqs.us-west-2.amazonaws.com/112745307245/PiazzaUpdateQueue"
