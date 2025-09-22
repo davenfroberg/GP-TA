@@ -158,7 +158,14 @@ export default function GlassChat() {
         console.log(`WebSocket disconnected for tab ${tabId}`);
         wsConnectionsRef.current.delete(tabId);
       };
-      ws.onerror = (err) => console.error(`WebSocket error for tab ${tabId}`, err);
+      ws.onerror = (err) => {
+        console.error(`WebSocket error for tab ${tabId}`, err);
+        // Update assistant message with error
+        const assistantId = currentAssistantIdRef.current.get(tabId);
+        if (assistantId) {
+          updateAssistantMessage(tabId, "Something went wrong, please try again!");
+        }
+      };
       ws.onmessage = (event) => handleWebSocketMessage(event, tabId);
     }
     
@@ -291,32 +298,18 @@ export default function GlassChat() {
     typeChar();
   }, [activeTabId, addMessagesToTab]);
 
-  // Message sending - now uses per-tab WebSocket connections
+  // Message sending - improved to show message immediately
   const sendMessage = useCallback(() => {
     const trimmed = input.trim();
     if (!trimmed) return;
 
-    const ws = getOrCreateWebSocket(activeTabId);
-    if (ws.readyState !== WebSocket.OPEN) {
-      console.log("WebSocket not ready, waiting...");
-      // Wait for connection to open
-      ws.addEventListener('open', () => {
-        sendMessageToWebSocket(ws, trimmed);
-      }, { once: true });
-      return;
-    }
-
-    sendMessageToWebSocket(ws, trimmed);
-  }, [input, activeTabId, getOrCreateWebSocket]);
-
-  const sendMessageToWebSocket = useCallback((ws: WebSocket, message: string) => {
     const userMsgId = Date.now();
     const assistantMsgId = userMsgId + 1;
     
     const userMsg: Message = { 
       id: userMsgId, 
       role: "user", 
-      text: message,
+      text: trimmed,
       course: activeTab.selectedCourse
     };
     const assistantMsg: Message = { 
@@ -327,19 +320,52 @@ export default function GlassChat() {
 
     // Track this assistant message for the current tab
     currentAssistantIdRef.current.set(activeTabId, assistantMsgId);
+    
+    // Immediately add messages to UI
     addMessagesToTab(activeTabId, [userMsg, assistantMsg]);
     setInput("");
     messageBufferRef.current.set(activeTabId, "");
 
-    // Send WebSocket message (no need for tabId since each tab has its own connection)
-    ws.send(JSON.stringify({
-      action: "chat",
-      message: message,
-      class: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
-      model: chatConfig.model,
-      prioritizeInstructor: chatConfig.prioritizeInstructor,
-    }));
-  }, [activeTabId, activeTab.selectedCourse, chatConfig, addMessagesToTab]);
+    // Now handle WebSocket connection and sending
+    const ws = getOrCreateWebSocket(activeTabId);
+    
+    const sendToWebSocket = () => {
+      try {
+        ws.send(JSON.stringify({
+          action: "chat",
+          message: trimmed,
+          class: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
+          model: chatConfig.model,
+          prioritizeInstructor: chatConfig.prioritizeInstructor,
+        }));
+      } catch (error) {
+        console.error("Failed to send message:", error);
+        updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+      }
+    };
+
+    if (ws.readyState === WebSocket.OPEN) {
+      sendToWebSocket();
+    } else if (ws.readyState === WebSocket.CONNECTING) {
+      // Add timeout for connection attempt
+      const connectionTimeout = setTimeout(() => {
+        updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+      }, 10000); // 10 second timeout
+      
+      ws.addEventListener('open', () => {
+        clearTimeout(connectionTimeout);
+        sendToWebSocket();
+      }, { once: true });
+      
+      ws.addEventListener('error', () => {
+        clearTimeout(connectionTimeout);
+        updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+      }, { once: true });
+    } else {
+      // WebSocket is in CLOSED state
+      updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+    }
+  }, [input, activeTabId, activeTab.selectedCourse, chatConfig, addMessagesToTab, getOrCreateWebSocket, updateAssistantMessage]);
 
   // Tab management
   const createNewTab = useCallback(() => {
@@ -440,28 +466,28 @@ export default function GlassChat() {
       : "bg-gradient-to-b from-blue-50 via-white to-blue-100 text-gray-900",
     
     mainContainer: isDark 
-      ? "bg-white/6 backdrop-blur-lg border border-white/10" 
-      : "bg-white/70 backdrop-blur-lg border border-gray-200/50 shadow-xl",
+      ? "" 
+      : "",
     
     tabBar: isDark 
-      ? "bg-slate-800" 
-      : "bg-gray-100/80",
+      ? "bg-slate-800 border border-gray-600/50" 
+      : "bg-white/40 border border-gray-300/50",
     
     activeTab: isDark 
       ? "bg-slate-700 text-white border-b-2 border-blue-500" 
       : "bg-white text-gray-900 border-b-2 border-blue-500",
     
     inactiveTab: isDark 
-      ? "bg-slate-800 text-slate-300 hover:bg-slate-700" 
-      : "bg-gray-100/80 text-gray-600 hover:bg-gray-200/60",
+      ? "text-slate-300 hover:bg-slate-700" 
+      : "text-gray-600 hover:bg-gray-200/40",
     
     inputArea: isDark 
       ? "" 
-      : "bg-white/20",
+      : "",
     
     inputContainer: isDark 
-      ? "border border-white/20 bg-white/6" 
-      : "border border-gray-300/50 bg-gray-50/80 ",
+      ? "border border-white/20 bg-white/6 backdrop-blur-sm" 
+      : "border border-gray-300/50 bg-gray-50/50 backdrop-blur-sm",
     
     select: isDark 
       ? "bg-slate-700 border border-white/20 text-white" 
@@ -491,7 +517,7 @@ export default function GlassChat() {
       ? "text-slate-400 group-hover:text-white hover:bg-slate-600" 
       : "text-gray-400 group-hover:text-gray-600 hover:bg-gray-200",
     
-    tooltip: isDark 
+    tooltip: isDark
       ? "bg-slate-800 text-white" 
       : "bg-slate-300 text-black",
     
@@ -511,7 +537,7 @@ export default function GlassChat() {
   return (
     <div className={`h-screen ${themeClasses.background} flex flex-col relative`}>
       <div className="relative flex-1 flex justify-center items-stretch my-3">
-        <div className={`w-full max-w-4xl flex flex-col rounded-2xl ${themeClasses.mainContainer} shadow-2xl relative`}>
+        <div className={`w-full max-w-5xl flex flex-col rounded-2xl ${themeClasses.mainContainer} relative`}>
           
           {/* Tab Bar */}
           <TabBar
@@ -531,7 +557,7 @@ export default function GlassChat() {
           {/* Messages */}
           <div
             ref={messagesContainerRef}
-            className="absolute top-[42px] bottom-[153px] left-0 right-0 overflow-y-auto p-6 space-y-3 scrollbar-thin scrollbar-thumb-slate-600/10 scrollbar-track-transparent"
+            className="absolute top-[44px] bottom-[153px] left-0 right-0 overflow-y-auto p-6 space-y-3 scrollbar-thin scrollbar-thumb-slate-600/10 scrollbar-track-transparent"
             style={{ backdropFilter: "blur(6px)" }}
           >
             {activeTab.messages.length === 0 ? (
@@ -684,7 +710,7 @@ function TabBar({
   themeClasses
 }: TabBarProps) {
   return (
-    <div className={`flex items-center ${themeClasses.tabBar} rounded-t-2xl overflow-x-auto select-none`}>
+    <div className={`flex items-center ${themeClasses.tabBar} rounded-2xl overflow-x-auto select-none`}>
       {/* GP-TA Logo */}
       <div className={`px-2 h-6 mr-2 ml-3 flex items-center justify-center ${themeClasses.logo} rounded-full text-xs font-bold text-white select-none`}>
         GP-TA
@@ -770,8 +796,8 @@ function ChatInput({
   themeClasses
 }: ChatInputProps) {
   return (
-    <div className={`${themeClasses.inputArea} absolute bottom-0 left-0 right-0 flex flex-col items-center gap-2 px-4 pb-1 rounded-b-2xl`} style={{ backdropFilter: "blur(6px)" }}>
-      <div className={`p-4 rounded-xl w-full shadow-lg ${themeClasses.inputContainer}`}>
+    <div className={`${themeClasses.inputArea} absolute bottom-0 left-0 right-0 flex flex-col items-center gap-2 px-4 pb-1 rounded-b-2xl`}>
+      <div className={`p-5 rounded-3xl w-full shadow-lg ${themeClasses.inputContainer}`}>
         
         {/* Config Row */}
         <div className="flex items-center gap-3 mb-2">
@@ -887,7 +913,7 @@ function MessageBubble({ role, text, course, citations, themeClasses, isFirstMes
   }, [citations]);
   
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} ${isFirstMessage ? "mt-8" : ""}`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} ${isFirstMessage ? "mt-6" : ""}`}>
       <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-[85%]`}>
         <div
           className={`break-words p-3 rounded-xl shadow-sm border relative group ${
