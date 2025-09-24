@@ -38,7 +38,6 @@ const MODELS = [
   { value: "gpt-5", label: "GPT-5" },
   { value: "gpt-5-mini", label: "GPT-5-mini" }
 ];
-const ASSISTANT_GREETING_MESSAGE = "Hi, I'm GP-TA — how can I help with your course today?";
 const EXAMPLE_PROMPTS = [
   "when is homework 1 due?",
   "how do I do question 5 on homework 2?",
@@ -220,40 +219,6 @@ export default function GlassChat() {
       )
     );
   }, []);
-
-  // Greeting animation
-  const startGreeting = useCallback(() => {
-    const assistantId = Date.now();
-    
-    // Add empty assistant message
-    addMessagesToTab(activeTabId, [{ id: assistantId, role: "assistant", text: "" }]);
-
-    // Type out greeting character by character
-    let index = 0;
-    const typeChar = () => {
-      index++;
-      setTabs(prev =>
-        prev.map(tab =>
-          tab.id === activeTabId
-            ? {
-                ...tab,
-                messages: tab.messages.map(m =>
-                  m.id === assistantId
-                    ? { ...m, text: ASSISTANT_GREETING_MESSAGE.slice(0, index) }
-                    : m
-                ),
-              }
-            : tab
-        )
-      );
-
-      if (index < ASSISTANT_GREETING_MESSAGE.length) {
-        setTimeout(typeChar, 4 + Math.random());
-      }
-    };
-
-    typeChar();
-  }, [activeTabId, addMessagesToTab]);
 
   // Message sending - improved to show message immediately
   const sendMessage = useCallback(() => {
