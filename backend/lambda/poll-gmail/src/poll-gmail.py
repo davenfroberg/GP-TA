@@ -202,8 +202,8 @@ class PiazzaMessageParser:
         parsed_url = urlparse(view_link)
         query_params = parse_qs(parsed_url.query)
         
-        course_id = query_params.get('cid', [None])[0]
-        post_id = query_params.get('nid', [None])[0]
+        post_id = query_params.get('cid', [None])[0]
+        course_id = query_params.get('nid', [None])[0]
         
         return post_id, course_id
 
