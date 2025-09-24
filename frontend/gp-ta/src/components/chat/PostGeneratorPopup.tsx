@@ -1,11 +1,12 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
 
 interface PostGeneratorPopupProps {
   isOpen: boolean;
   onClose: () => void;
   onGenerate: (details: string) => void;
-  themeClasses: any; // your themeClasses from PiazzaChat
+  themeClasses: any; // themeClasses from PiazzaChat
 }
 
 export default function PostGeneratorPopup({
@@ -14,7 +15,24 @@ export default function PostGeneratorPopup({
   onGenerate,
   themeClasses,
 }: PostGeneratorPopupProps) {
+  
   const [details, setDetails] = useState("");
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setDetails("");
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
 
   return (
     <AnimatePresence>
@@ -36,9 +54,6 @@ export default function PostGeneratorPopup({
               <h2 className={`text-lg font-semibold ${themeClasses.label}`}>
                 Generate a Piazza Post
               </h2>
-              <button onClick={onClose} className={`px-2 rounded-lg ${themeClasses.closeButton}`}>
-                ✕
-              </button>
             </div>
 
             {/* Instructions */}
@@ -58,7 +73,7 @@ export default function PostGeneratorPopup({
 
             {/* Footer */}
             <div className="flex justify-end gap-3 mt-6">
-              <button onClick={onClose} className={`px-4 py-2 rounded-xl ${themeClasses.closeButton}`}>
+              <button onClick={() => {onClose(); setDetails("");}} className={`px-4 py-2 rounded-xl ${themeClasses.closeButton} cursor-pointer`}>
                 Cancel
               </button>
               <button
@@ -66,7 +81,7 @@ export default function PostGeneratorPopup({
                   onGenerate(details);
                   setDetails("");
                 }}
-                className={`px-4 py-2 rounded-xl ${themeClasses.sendButton} active:scale-95`}
+                className={`px-4 py-2 rounded-xl ${themeClasses.sendButton} ${!details.trim() ? "opacity-30 hover:opacity-37" : "active:scale-95 cursor-pointer"}`}
                 disabled={!details.trim()}
               >
                 Generate Post

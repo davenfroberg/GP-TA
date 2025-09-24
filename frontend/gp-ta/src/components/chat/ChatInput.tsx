@@ -84,7 +84,7 @@ export default function ChatInput({
           <button
             onClick={onSend}
             aria-label="Send"
-            className={`flex items-center justify-center w-12 h-12 rounded-2xl ${themeClasses.sendButton} shadow-sm active:scale-95`}
+            className={`flex items-center justify-center w-12 h-12 rounded-2xl ${themeClasses.sendButton} shadow-sm active:scale-95 cursor-pointer`}
           >
             <SendIcon />
           </button>

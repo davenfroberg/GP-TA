@@ -31,7 +31,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
   const [editingTab, setEditingTab] = useState<{id: number, title: string} | null>(null);
   const [isPopupOpen, setIsPopupOpen] = useState(false);
 
-  // Refs - now track per tab
+  // Refs
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const wsConnectionsRef = useRef<Map<number, WebSocket>>(new Map()); // Map tabId -> WebSocket
   const messageBufferRef = useRef<Map<number, string>>(new Map()); // Map tabId -> message buffer
@@ -166,7 +166,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
     );
   }, []);
 
-  // Message sending - improved to show message immediately
+  // Message sending
   const sendMessage = useCallback(() => {
     setIsPopupOpen(true)
     const trimmed = input.trim();

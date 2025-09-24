@@ -40,7 +40,7 @@ export default function TabBar({
         {tabs.map((tab) => (
           <div
             key={tab.id}
-            className={`flex items-center group px-3 py-2.5 text-sm select-none cursor-pointer ${
+            className={`flex items-center group px-3 py-2.5 text-sm select-none ${
               activeTabId === tab.id
                 ? themeClasses.activeTab
                 : themeClasses.inactiveTab
@@ -70,7 +70,7 @@ export default function TabBar({
                   e.stopPropagation();
                   onTabClose(tab.id);
                 }}
-                className={`ml-3 px-2 py-0.5 -m-1 opacity-0 group-hover:opacity-100 rounded-sm ${themeClasses.closeButton}`}
+                className={`ml-3 px-2 py-0.5 -m-1 opacity-0 group-hover:opacity-100 rounded-sm ${themeClasses.closeButton} cursor-pointer`}
               >
                 ×
               </button>
@@ -81,7 +81,7 @@ export default function TabBar({
         {tabs.length < MAX_NUMBER_OF_TABS && (
           <button
             onClick={onNewTab}
-            className={`px-4 py-2 ${themeClasses.inactiveTab.includes('text-slate-300') ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}
+            className={`px-4 py-2 ${themeClasses.inactiveTab.includes('text-slate-300') ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700 cursor-pointer'}`}
           >
             +
           </button>
