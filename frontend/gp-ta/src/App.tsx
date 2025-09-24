@@ -6,6 +6,7 @@ import he from "he";
 interface Citation {
   title: string;
   url: string;
+  post_number?: string; // Optional post number for better citations
 }
 
 interface Message {
@@ -32,10 +33,6 @@ interface ChatConfig {
 const API_KEY = import.meta.env.VITE_GP_TA_API_KEY;
 const API_ID = import.meta.env.VITE_GP_TA_API_ID;
 const WEBSOCKET_URL = `wss://${API_ID}.execute-api.us-west-2.amazonaws.com/production/?api_key=${API_KEY}`;
-const BROWSER_STORAGE_KEYS = {
-  TABS: "glasschat_tabs",
-  ACTIVE_TAB_ID: "glasschat_activeTabId"
-};
 const COURSES = ["CPSC 110", "CPSC 121", "CPSC 330", "CPSC 404", "CPSC 418"];
 const MODELS = [
   { value: "gpt-5", label: "GPT-5" },
@@ -48,7 +45,8 @@ const EXAMPLE_PROMPTS = [
   "what topics will be on the midterm?",
   "I missed an iClicker, is this okay?",
   "where are office hours held?",
-  "how do I register for quiz 3?"
+  "how do I register for quiz 3?",
+  "is lecture cancelled today?",
 ];
 const MAX_NUMBER_OF_TABS = 6;
 
@@ -74,8 +72,13 @@ export default function GlassChat() {
   const isDark = useTheme();
   
   // State management
-  const [tabs, setTabs] = useState<ChatTab[]>(loadTabsFromStorage);
-  const [activeTabId, setActiveTabId] = useState<number>(loadActiveTabIdFromStorage);
+  const [tabs, setTabs] = useState<ChatTab[]>([{ 
+    id: Date.now(), 
+    title: "Chat 1", 
+    messages: [],
+    selectedCourse: COURSES[0]
+  }]);
+  const [activeTabId, setActiveTabId] = useState<number>(Date.now());
   const [chatConfig, setChatConfig] = useState<ChatConfig>({
     prioritizeInstructor: false,
     model: "gpt-5"
@@ -92,58 +95,12 @@ export default function GlassChat() {
   // Derived state
   const activeTab = tabs.find(t => t.id === activeTabId)!;
 
-  // Storage helpers
-  function loadTabsFromStorage(): ChatTab[] {
-    try {
-      const stored = localStorage.getItem(BROWSER_STORAGE_KEYS.TABS);
-      if (stored) {
-        const parsedTabs = JSON.parse(stored);
-        // Migrate old tabs that don't have course property
-        return parsedTabs.map((tab: any) => ({
-          ...tab,
-          course: tab.course || COURSES[0] // Default to first course if missing
-        }));
-      }
-      return createDefaultTab();
-    } catch {
-      return createDefaultTab();
-    }
-  }
-
-  function loadActiveTabIdFromStorage(): number {
-    const stored = localStorage.getItem(BROWSER_STORAGE_KEYS.ACTIVE_TAB_ID);
-    return stored ? parseInt(stored, 10) : Date.now();
-  }
-
-  function createDefaultTab(): ChatTab[] {
-    return [{ 
-      id: Date.now(), 
-      title: "Chat 1", 
-      messages: [],
-      selectedCourse: COURSES[0] // Default to first course
-    }];
-  }
-
-  // Effects for persistence
-  useEffect(() => {
-    localStorage.setItem(BROWSER_STORAGE_KEYS.TABS, JSON.stringify(tabs));
-  }, [tabs]);
-
-  useEffect(() => {
-    localStorage.setItem(BROWSER_STORAGE_KEYS.ACTIVE_TAB_ID, activeTabId.toString());
-  }, [activeTabId]);
-
   // Auto-scroll messages (only for active tab)
   useEffect(() => {
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
     }
   }, [activeTab.messages]);
-
-  // Initialize greeting for new tabs
-  useEffect(() => {
-    // Remove the greeting initialization since we'll show example prompts instead
-  }, [activeTabId, tabs]);
 
   // WebSocket management - create connections per tab
   const getOrCreateWebSocket = useCallback((tabId: number): WebSocket => {
@@ -470,8 +427,8 @@ export default function GlassChat() {
       : "",
     
     tabBar: isDark 
-      ? "bg-slate-800 border border-gray-600/50" 
-      : "bg-white/40 border border-gray-300/50",
+      ? "bg-slate-800/60 border border-gray-600/50 backdrop-blur-lg" 
+      : "border border-gray-300/50 bg-gray-50/40 backdrop-blur-lg",
     
     activeTab: isDark 
       ? "bg-slate-700 text-white border-b-2 border-blue-500" 
@@ -531,34 +488,46 @@ export default function GlassChat() {
     
     logo: isDark 
       ? "bg-gradient-to-br from-slate-500 to-blue-700" 
-      : "bg-gradient-to-br from-slate-500 to-blue-700"
+      : "bg-gradient-to-br from-slate-500 to-blue-700",
+      
+    fadeMask: isDark
+      ? "bg-gradient-to-b from-transparent to-slate-900"
+      : "bg-gradient-to-b from-transparent to-blue-50"
   };
 
   return (
     <div className={`h-screen ${themeClasses.background} flex flex-col relative`}>
       <div className="relative flex-1 flex justify-center items-stretch my-3">
-        <div className={`w-full max-w-5xl flex flex-col rounded-2xl ${themeClasses.mainContainer} relative`}>
+        <div className={`w-full max-w-5xl flex flex-col rounded-2xl ${themeClasses.mainContainer} relative overflow-hidden`}>
           
-          {/* Tab Bar */}
-          <TabBar
-            tabs={tabs}
-            activeTabId={activeTabId}
-            editingTab={editingTab}
-            onTabClick={setActiveTabId}
-            onTabDoubleClick={startEditingTab}
-            onTabClose={closeTab}
-            onTabTitleSave={saveTabTitle}
-            onTabTitleCancel={() => setEditingTab(null)}
-            onTabTitleChange={(title) => setEditingTab(prev => prev ? { ...prev, title } : null)}
-            onNewTab={createNewTab}
-            themeClasses={themeClasses}
-          />
+          {/* Tab Bar - Now with frosted glass effect and higher z-index */}
+          <div className={`relative z-30`}>
+            <TabBar
+              tabs={tabs}
+              activeTabId={activeTabId}
+              editingTab={editingTab}
+              onTabClick={setActiveTabId}
+              onTabDoubleClick={startEditingTab}
+              onTabClose={closeTab}
+              onTabTitleSave={saveTabTitle}
+              onTabTitleCancel={() => setEditingTab(null)}
+              onTabTitleChange={(title) => setEditingTab(prev => prev ? { ...prev, title } : null)}
+              onNewTab={createNewTab}
+              themeClasses={themeClasses}
+            />
+          </div>
 
-          {/* Messages */}
+          {/* Fade mask for messages that scroll under the tab bar - covers bottom half */}
+          <div className={`absolute top-6 left-0 right-0 h-5 ${themeClasses.fadeMask} z-20 pointer-events-none`} />
+
+          {/* Messages - Now can scroll under the tab bar */}
           <div
             ref={messagesContainerRef}
-            className="absolute top-[44px] bottom-[153px] left-0 right-0 overflow-y-auto p-6 space-y-3 scrollbar-thin scrollbar-thumb-slate-600/10 scrollbar-track-transparent"
-            style={{ backdropFilter: "blur(6px)" }}
+            className="absolute top-0 bottom-[153px] left-0 right-0 overflow-y-auto p-6 pt-16 space-y-3 z-10"
+            style={{ 
+              backdropFilter: "blur(6px)",
+              scrollbarWidth: 'none'  // Hides scrollbar in Firefox
+            }}
           >
             {activeTab.messages.length === 0 ? (
               <ExamplePrompts themeClasses={themeClasses} />
@@ -611,7 +580,7 @@ function ExamplePrompts({ themeClasses }: ExamplePromptsProps) {
       if (currentText.length < currentPrompt.length) {
         const timeout = setTimeout(() => {
           setCurrentText(currentPrompt.slice(0, currentText.length + 1));
-        }, 40 + Math.random() * 90); // Variable typing speed for natural feel
+        }, 30 + Math.random() * 90); // Variable typing speed for natural feel
         
         return () => clearTimeout(timeout);
       } else {
@@ -796,7 +765,7 @@ function ChatInput({
   themeClasses
 }: ChatInputProps) {
   return (
-    <div className={`${themeClasses.inputArea} absolute bottom-0 left-0 right-0 flex flex-col items-center gap-2 px-4 pb-1 rounded-b-2xl`}>
+    <div className={`${themeClasses.inputArea} absolute bottom-0 left-0 right-0 flex flex-col items-center gap-2 px-4 pb-1 rounded-b-2xl z-30`}>
       <div className={`p-5 rounded-3xl w-full shadow-lg ${themeClasses.inputContainer}`}>
         
         {/* Config Row */}
