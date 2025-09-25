@@ -17,3 +17,38 @@ export const EXAMPLE_PROMPTS = [
   "is lecture cancelled today?",
 ];
 export const MAX_NUMBER_OF_TABS = 6;
+
+export const AFFIRMATIVES = [
+  "yes",
+  "yep",
+  "yeah",
+  "yup",
+  "sure",
+  "absolutely",
+  "definitely",
+  "of course",
+  "certainly",
+  "affirmative",
+  "indeed",
+  "roger",
+  "y",
+  "yes please",
+  "sure thing",
+  "sounds good",
+  "why not",
+  "yeah please",
+  "yep please",
+  "yup please",
+  "please do",
+  "please",
+  "yea",
+  "ya",
+  "yah",
+  "for sure",
+  "totally",
+  "okay",
+  "ok",
+  "alright",
+  "alrighty",
+  "post"
+]

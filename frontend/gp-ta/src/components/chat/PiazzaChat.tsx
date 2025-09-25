@@ -1,8 +1,7 @@
-
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { KeyboardEvent } from "react";
 import type { Citation, Message, ChatTab, ChatConfig } from "../../types/chat";
-import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS } from "../../constants/chat";
+import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS, AFFIRMATIVES } from "../../constants/chat";
 import { useTheme } from "../../hooks/useTheme";
 import TabBar from "./TabBar";
 import ChatInput from "./ChatInput";
@@ -30,6 +29,8 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
   const [input, setInput] = useState<string>("");
   const [editingTab, setEditingTab] = useState<{id: number, title: string} | null>(null);
   const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [pendingPostGeneration, setPendingPostGeneration] = useState(false); // Track if we're waiting for post generation
+  const [canPost, setCanPost] = useState(true); // Track if the user hasn't said yes or no yet
 
   // Refs
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
@@ -166,14 +167,24 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
     );
   }, []);
 
+  // Add a simple AI response without WebSocket
+  const addSimpleAIResponse = useCallback((responseText: string) => {
+    const assistantMsgId = Date.now();
+    const assistantMsg: Message = { 
+      id: assistantMsgId, 
+      role: "assistant", 
+      text: responseText 
+    };
+    addMessagesToTab(activeTabId, [assistantMsg]);
+  }, [activeTabId, addMessagesToTab]);
+
   // Message sending
   const sendMessage = useCallback(() => {
-    setIsPopupOpen(true)
     const trimmed = input.trim();
     if (!trimmed) return;
 
     const userMsgId = Date.now();
-    const assistantMsgId = userMsgId + 1;
+    
     
     const userMsg: Message = { 
       id: userMsgId, 
@@ -181,6 +192,32 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       text: trimmed,
       course: activeTab.selectedCourse
     };
+
+    const assistantMsgId = userMsgId + 1;
+
+    // Handle affirmative responses - open popup and set pending state
+    if (AFFIRMATIVES.includes(trimmed.toLowerCase()) && canPost) {
+      setCanPost(false);
+      setIsPopupOpen(true);
+      setPendingPostGeneration(true);
+      setInput("");
+      addMessagesToTab(activeTabId, [userMsg]);
+      return;
+    }
+
+    if (trimmed.toLowerCase() === "no" && canPost) {
+      setCanPost(false);
+      const assistantMsg: Message = { 
+        id: assistantMsgId, 
+        role: "assistant", 
+        text: "Okay, I won't generate a post for you!" 
+      };
+      setInput("");
+      addMessagesToTab(activeTabId, [userMsg, assistantMsg]);
+      return;
+    }
+    setCanPost(true); // Reset canPost for normal messages
+
     const assistantMsg: Message = { 
       id: assistantMsgId, 
       role: "assistant", 
@@ -235,6 +272,22 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
     }
   }, [input, activeTabId, activeTab.selectedCourse, chatConfig, addMessagesToTab, getOrCreateWebSocket, updateAssistantMessage]);
+
+  // Handle popup close
+  const handlePopupClose = useCallback(() => {
+    setIsPopupOpen(false);
+    if (pendingPostGeneration) {
+      setPendingPostGeneration(false);
+      addSimpleAIResponse("Okay, I won't generate a post for you!");
+    }
+  }, [pendingPostGeneration, addSimpleAIResponse]);
+
+  // Handle successful post generation (called when popup finishes posting)
+  const handlePostSuccess = useCallback(() => {
+    setIsPopupOpen(false);
+    setPendingPostGeneration(false);
+    addSimpleAIResponse("I posted to Piazza for you! Keep an eye on Piazza for an answer to your question.");
+  }, [addSimpleAIResponse]);
 
   // Tab management
   const createNewTab = useCallback(() => {
@@ -476,12 +529,10 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       </div>
       <PostGeneratorPopup
         isOpen={isPopupOpen}
-        onClose={() => setIsPopupOpen(false)}
-        onGenerate={() => {
-          setIsPopupOpen(false);
-          console.log("HELLO WORLD!!!")
-        }}
+        onClose={handlePopupClose}
+        onPostSuccess={handlePostSuccess}
         themeClasses={themeClasses}
+        activeTab={activeTab}
       />
     </div>
   );
