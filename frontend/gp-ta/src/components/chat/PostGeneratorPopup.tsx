@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface PostGeneratorPopupProps {
   isOpen: boolean;
@@ -28,6 +28,14 @@ export default function PostGeneratorPopup({
   const [generatedPost, setGeneratedPost] = useState<GeneratedPost | null>(null);
   const [editableTitle, setEditableTitle] = useState("");
   const [editableContent, setEditableContent] = useState("");
+
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+  if (isOpen && state === "input" && inputRef.current) {
+    inputRef.current.focus();
+  }
+}, [isOpen, state]);
 
   // Reset state when popup opens/closes
   useEffect(() => {
@@ -149,6 +157,7 @@ export default function PostGeneratorPopup({
 
       {/* Textarea */}
       <textarea
+        ref={inputRef}
         value={details}
         onChange={(e) => setDetails(e.target.value)}
         placeholder="Type additional context here..."

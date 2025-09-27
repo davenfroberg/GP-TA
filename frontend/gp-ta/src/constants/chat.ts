@@ -52,3 +52,22 @@ export const AFFIRMATIVES = [
   "alrighty",
   "post"
 ]
+
+export const NEGATIVES = [
+  "no",
+  "nope",
+  "nah",
+  "nay",
+  "not really",
+  "negative",
+  "never",
+  "absolutely not",
+  "definitely not",
+  "of course not",
+  "certainly not",
+  "no way",
+  "n",
+  "no thanks",
+  "no thank you",
+  "not at all"
+]

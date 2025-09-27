@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { KeyboardEvent } from "react";
 import type { Citation, Message, ChatTab, ChatConfig } from "../../types/chat";
-import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS, AFFIRMATIVES } from "../../constants/chat";
+import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS, AFFIRMATIVES, NEGATIVES } from "../../constants/chat";
 import { useTheme } from "../../hooks/useTheme";
 import TabBar from "./TabBar";
 import ChatInput from "./ChatInput";
@@ -14,14 +14,13 @@ export default function PiazzaChat() {
   const isDark = useTheme();
   
   // State management
- // With this:
-const [tabs, setTabs] = usePersistedState<ChatTab[]>('gp-ta-tabs', [{ 
-  id: Date.now(), 
-  title: "Chat 1", 
-  messages: [],
-  selectedCourse: COURSES[0]
-}]);
-const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-tab', Date.now());
+  const [tabs, setTabs] = usePersistedState<ChatTab[]>('gp-ta-tabs', [{ 
+    id: Date.now(), 
+    title: "Chat 1", 
+    messages: [],
+    selectedCourse: COURSES[0]
+  }]);
+  const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-tab', Date.now());
   const [chatConfig, setChatConfig] = useState<ChatConfig>({
     prioritizeInstructor: false,
     model: "gpt-5"
@@ -29,26 +28,233 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
   const [input, setInput] = useState<string>("");
   const [editingTab, setEditingTab] = useState<{id: number, title: string} | null>(null);
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [pendingPostGeneration, setPendingPostGeneration] = useState(false); // Track if we're waiting for post generation
-  const [canPost, setCanPost] = useState(true); // Track if the user hasn't said yes or no yet
+  const [pendingPostGeneration, setPendingPostGeneration] = useState(false);
+  const [canPost, setCanPost] = useState(false);
+
+  // Add loading state to track which tabs are processing messages
+  const [loadingTabs, setLoadingTabs] = useState<Set<number>>(new Set());
 
   // Refs
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const wsConnectionsRef = useRef<Map<number, WebSocket>>(new Map()); // Map tabId -> WebSocket
-  const messageBufferRef = useRef<Map<number, string>>(new Map()); // Map tabId -> message buffer
-  const currentAssistantIdRef = useRef<Map<number, number>>(new Map()); // Map tabId -> assistant message ID
+  const wsConnectionsRef = useRef<Map<number, WebSocket>>(new Map());
+  const messageBufferRef = useRef<Map<number, string>>(new Map());
+  const currentAssistantIdRef = useRef<Map<number, number>>(new Map());
+  const isUserScrollingRef = useRef<boolean>(false);
+  const scrollTimeoutRef = useRef<number | null>(null);
+  const shouldAutoScrollRef = useRef<boolean>(true);
+  const tabScrollPositionsRef = useRef<Map<number, number>>(new Map());
 
-  // Derived state
-  const activeTab = tabs.find(t => t.id === activeTabId)!;
+  // Memoized derived state
+  const activeTab = useMemo(() => 
+    tabs.find(t => t.id === activeTabId)!, 
+    [tabs, activeTabId]
+  );
 
-  // Auto-scroll messages (only for active tab)
-  useEffect(() => {
-    if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+  // Check if current tab is loading
+  const isCurrentTabLoading = useMemo(() => 
+    loadingTabs.has(activeTabId), 
+    [loadingTabs, activeTabId]
+  );
+
+  // Helper functions to manage loading state
+  const setTabLoading = useCallback((tabId: number, loading: boolean) => {
+    setLoadingTabs(prev => {
+      const newSet = new Set(prev);
+      if (loading) {
+        newSet.add(tabId);
+      } else {
+        newSet.delete(tabId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Memoized theme classes to prevent recreation on every render
+  const themeClasses = useMemo(() => ({
+    background: isDark
+      ? "bg-gradient-to-b from-slate-900 via-slate-800 to-slate-950 text-white"
+      : "bg-gradient-to-b from-blue-50 via-white to-blue-100 text-gray-900",
+    mainContainer: isDark ? "" : "",
+    frostedPopup: isDark
+      ? "bg-white/10 border border-white/20 text-white backdrop-blur-sm shadow-2xl"
+      : "bg-white/80 border border-gray-300/40 text-gray-900 backdrop-blur-md shadow-2xl",
+    tabBar: isDark
+      ? "bg-slate-800/60 border border-gray-600/50 backdrop-blur-lg"
+      : "border border-gray-300/50 bg-gray-50/40 backdrop-blur-lg",
+    activeTab: isDark
+      ? "bg-slate-700 text-white border-b-2 border-blue-500"
+      : "bg-white text-gray-900 border-b-2 border-blue-500",
+    inactiveTab: isDark
+      ? "text-slate-300 hover:bg-slate-700"
+      : "text-gray-600 hover:bg-gray-200/40",
+    inputArea: isDark ? "" : "",
+    inputContainer: isDark
+      ? "border border-white/20 bg-white/6 backdrop-blur-sm"
+      : "border border-gray-300/50 bg-gray-50/50 backdrop-blur-sm",
+    select: isDark
+      ? "bg-slate-700 border border-white/20 text-white"
+      : "bg-white border border-gray-300 text-gray-900",
+    textarea: isDark
+      ? "bg-slate-700 border border-white/20 placeholder-white/60 text-white"
+      : "bg-white border border-gray-300 placeholder-gray-400 text-gray-900",
+    sendButton: isDark
+      ? "bg-slate-600 hover:bg-slate-500 border border-white/20 text-white"
+      : "bg-black hover:bg-black/80 text-white",
+    userBubble: isDark
+      ? "bg-white/20 text-white border-white/8"
+      : "bg-slate-100 text-black border-slate-500/20",
+    assistantBubble: isDark
+      ? "bg-white/6 text-white border-white/6"
+      : "bg-white text-gray-900 border-gray-200/50 shadow-sm",
+    citation: isDark
+      ? "bg-white/6 text-white border-white/6"
+      : "bg-white text-gray-900 border-gray-200/50 shadow-sm",
+    footer: isDark ? "text-white/40" : "text-gray-500",
+    closeButton: isDark
+      ? "text-slate-400 group-hover:text-white hover:bg-slate-600"
+      : "text-gray-400 group-hover:text-gray-600 hover:bg-gray-200",
+    tooltip: isDark ? "bg-slate-900 text-white" : "bg-slate-300 text-black",
+    editInput: isDark ? "bg-slate-600 text-white" : "bg-white text-gray-900",
+    label: isDark ? "text-white" : "text-gray-700",
+    logo: isDark
+      ? "bg-gradient-to-br from-slate-500 to-blue-700"
+      : "bg-gradient-to-br from-slate-500 to-blue-700",
+    fadeMask: isDark
+      ? "bg-gradient-to-b from-transparent to-slate-900"
+      : "bg-gradient-to-b from-transparent to-blue-50",
+    inlineCode: isDark
+      ? "bg-white/10 text-white border border-white/20"
+      : "bg-gray-100 text-gray-800 border border-gray-200",
+    blockquote: isDark ? "border-gray-600 text-gray-300" : "border-gray-300 text-gray-600",
+    link: isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-500 hover:text-blue-700",
+    tableborder: isDark ? "border-gray-600" : "border-gray-300",
+    tableHeader: isDark ? "border-gray-600 bg-white/10" : "border-gray-300 bg-gray-100"
+  }), [isDark]);
+
+  const isNearBottom = useCallback(() => {
+    if (!messagesContainerRef.current) return true;
+    const container = messagesContainerRef.current;
+    const threshold = 100; // pixels from bottom
+    return container.scrollTop + container.clientHeight >= container.scrollHeight - threshold;
+  }, []);
+
+  // Improved auto-scroll function
+  const scrollToBottom = useCallback((force: boolean = false) => {
+    if (!messagesContainerRef.current) return;
+    
+    // Only auto-scroll if user hasn't manually scrolled up or if forced
+    if (!force && !shouldAutoScrollRef.current) return;
+    
+    const container = messagesContainerRef.current;
+    
+    // Use smooth scrolling for better UX
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth'
+    });
+  }, []);
+
+  // Save scroll position for current tab before switching
+  const saveCurrentScrollPosition = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    const scrollPosition = messagesContainerRef.current.scrollTop;
+    tabScrollPositionsRef.current.set(activeTabId, scrollPosition);
+  }, [activeTabId]);
+
+  // Restore scroll position for a specific tab
+  const restoreScrollPosition = useCallback((tabId: number) => {
+    if (!messagesContainerRef.current) return;
+    
+    const savedPosition = tabScrollPositionsRef.current.get(tabId);
+    if (savedPosition !== undefined) {
+      // Use requestAnimationFrame to ensure DOM is updated before scrolling
+      requestAnimationFrame(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = savedPosition;
+          
+          // Update auto-scroll state based on restored position
+          const isAtBottom = isNearBottom();
+          shouldAutoScrollRef.current = isAtBottom;
+        }
+      });
+    } else {
+      // If no saved position, scroll to bottom (new tab behavior)
+      setTimeout(() => scrollToBottom(true), 10);
     }
-  }, [activeTab.messages]);
+  }, [isNearBottom, scrollToBottom]);
+  
 
-  // WebSocket management - create connections per tab
+  // Handle scroll events to detect user scrolling
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    
+    // Save current scroll position for active tab
+    saveCurrentScrollPosition();
+    
+    // Clear existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    
+    // Check if user is scrolling manually
+    const wasNearBottom = isNearBottom();
+    
+    // If user scrolled away from bottom, disable auto-scroll
+    if (!wasNearBottom) {
+      shouldAutoScrollRef.current = false;
+      isUserScrollingRef.current = true;
+    } else {
+      // If user is at/near bottom, re-enable auto-scroll
+      shouldAutoScrollRef.current = true;
+      isUserScrollingRef.current = false;
+    }
+    
+    // Reset scroll detection after a delay
+    scrollTimeoutRef.current = setTimeout(() => {
+      isUserScrollingRef.current = false;
+      if (isNearBottom()) {
+        shouldAutoScrollRef.current = true;
+      }
+    }, 150);
+  }, [isNearBottom, saveCurrentScrollPosition]);
+
+  // Add scroll listener to messages container
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [handleScroll]);
+
+  // Auto-scroll when messages change (with improved logic)
+  useEffect(() => {
+    // Always scroll for new messages if we should auto-scroll
+    if (shouldAutoScrollRef.current) {
+      // Small delay to ensure DOM is updated
+      const timeoutId = setTimeout(() => {
+        scrollToBottom();
+      }, 10);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [activeTab.messages, scrollToBottom]);
+
+  // Force scroll to bottom when switching tabs or sending new message
+  useEffect(() => {
+    // Save scroll position of previous tab before switching
+    const prevActiveTabId = tabScrollPositionsRef.current.get(activeTabId);
+    
+    // Restore scroll position for the new active tab
+    restoreScrollPosition(activeTabId);
+  }, [activeTabId, restoreScrollPosition]);
+
+  // Memoized WebSocket creation function
   const getOrCreateWebSocket = useCallback((tabId: number): WebSocket => {
     let ws = wsConnectionsRef.current.get(tabId);
     
@@ -63,17 +269,18 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       };
       ws.onerror = (err) => {
         console.error(`WebSocket error for tab ${tabId}`, err);
-        // Update assistant message with error
         const assistantId = currentAssistantIdRef.current.get(tabId);
         if (assistantId) {
           updateAssistantMessage(tabId, "Something went wrong, please try again!");
         }
+        // Stop loading state on error
+        setTabLoading(tabId, false);
       };
       ws.onmessage = (event) => handleWebSocketMessage(event, tabId);
     }
     
     return ws;
-  }, []);
+  }, [setTabLoading]); // Added setTabLoading to dependencies
 
   // Cleanup WebSocket connections when component unmounts
   useEffect(() => {
@@ -87,7 +294,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
     };
   }, []);
 
-  // WebSocket message handler - now takes tabId as parameter
+  // Optimized WebSocket message handler
   const handleWebSocketMessage = useCallback((event: MessageEvent, tabId: number) => {
     let data;
     try {
@@ -97,9 +304,16 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       return;
     }
 
+    // Batch state updates to reduce re-renders
     switch (data.type) {
       case "chat_done":
         messageBufferRef.current.delete(tabId);
+        // Stop loading state when chat is done
+        setTabLoading(tabId, false);
+        // Ensure we scroll to bottom when streaming is complete
+        if (tabId === activeTabId) {
+          setTimeout(() => scrollToBottom(), 100);
+        }
         break;
       case "chat_chunk":
         const currentBuffer = messageBufferRef.current.get(tabId) || "";
@@ -113,6 +327,12 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       case "chat_start":
         messageBufferRef.current.set(tabId, "");
         updateAssistantMessage(tabId, "");
+        // Start loading state when chat begins
+        setTabLoading(tabId, true);
+        // Enable auto-scroll when new message starts
+        if (tabId === activeTabId) {
+          shouldAutoScrollRef.current = true;
+        }
         break;
       case "citations":
         if (data.citations && currentAssistantIdRef.current.has(tabId)) {
@@ -120,42 +340,42 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
         }
         break;
     }
-  }, []);
+  }, [activeTabId, scrollToBottom, setTabLoading]);
 
-  // Message management - now takes tabId as parameter
+  // Optimized message update functions with reduced object creation
   const updateAssistantMessage = useCallback((tabId: number, text: string) => {
-    setTabs(prev =>
-      prev.map(tab =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              messages: tab.messages.map(m =>
-                m.role === "assistant" && m.id === currentAssistantIdRef.current.get(tabId)
-                  ? { ...m, text }
-                  : m
-              ),
-            }
-          : tab
-      )
-    );
-  }, []);
+    setTabs(prev => {
+      const assistantId = currentAssistantIdRef.current.get(tabId);
+      return prev.map(tab => {
+        if (tab.id !== tabId) return tab;
+        
+        const updatedMessages = tab.messages.map(m => 
+          m.role === "assistant" && m.id === assistantId
+            ? { ...m, text }
+            : m
+        );
+        
+        return { ...tab, messages: updatedMessages };
+      });
+    });
+  }, [setTabs]);
 
   const addCitationsToAssistantMessage = useCallback((tabId: number, citations: Citation[]) => {
-    setTabs(prev =>
-      prev.map(tab =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              messages: tab.messages.map(m =>
-                m.role === "assistant" && m.id === currentAssistantIdRef.current.get(tabId)
-                  ? { ...m, citations }
-                  : m
-              ),
-            }
-          : tab
-      )
-    );
-  }, []);
+    setTabs(prev => {
+      const assistantId = currentAssistantIdRef.current.get(tabId);
+      return prev.map(tab => {
+        if (tab.id !== tabId) return tab;
+        
+        const updatedMessages = tab.messages.map(m =>
+          m.role === "assistant" && m.id === assistantId
+            ? { ...m, citations }
+            : m
+        );
+        
+        return { ...tab, messages: updatedMessages };
+      });
+    });
+  }, [setTabs]);
 
   const addMessagesToTab = useCallback((tabId: number, newMessages: Message[]) => {
     setTabs(prev =>
@@ -165,9 +385,15 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
           : tab
       )
     );
-  }, []);
+    
+    // Force scroll to bottom when adding new messages
+    if (tabId === activeTabId) {
+      shouldAutoScrollRef.current = true;
+      setTimeout(() => scrollToBottom(true), 10);
+    }
+  }, [setTabs, activeTabId, scrollToBottom]);
 
-  // Add a simple AI response without WebSocket
+  // Optimized simple AI response
   const addSimpleAIResponse = useCallback((responseText: string) => {
     const assistantMsgId = Date.now();
     const assistantMsg: Message = { 
@@ -178,14 +404,15 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
     addMessagesToTab(activeTabId, [assistantMsg]);
   }, [activeTabId, addMessagesToTab]);
 
-  // Message sending
+  // Optimized sendMessage with reduced state updates
   const sendMessage = useCallback(() => {
+    // Prevent sending if tab is currently loading
+    if (isCurrentTabLoading) return;
+    
     const trimmed = input.trim();
     if (!trimmed) return;
 
     const userMsgId = Date.now();
-    
-    
     const userMsg: Message = { 
       id: userMsgId, 
       role: "user", 
@@ -195,7 +422,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
 
     const assistantMsgId = userMsgId + 1;
 
-    // Handle affirmative responses - open popup and set pending state
+    // Handle affirmative responses
     if (AFFIRMATIVES.includes(trimmed.toLowerCase()) && canPost) {
       setCanPost(false);
       setIsPopupOpen(true);
@@ -205,7 +432,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       return;
     }
 
-    if (trimmed.toLowerCase() === "no" && canPost) {
+    if (NEGATIVES.includes(trimmed.toLowerCase()) && canPost) {
       setCanPost(false);
       const assistantMsg: Message = { 
         id: assistantMsgId, 
@@ -216,7 +443,8 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       addMessagesToTab(activeTabId, [userMsg, assistantMsg]);
       return;
     }
-    setCanPost(true); // Reset canPost for normal messages
+    
+    setCanPost(true);
 
     const assistantMsg: Message = { 
       id: assistantMsgId, 
@@ -224,15 +452,14 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       text: "Finding relevant Piazza posts..." 
     };
 
-    // Track this assistant message for the current tab
     currentAssistantIdRef.current.set(activeTabId, assistantMsgId);
-    
-    // Immediately add messages to UI
     addMessagesToTab(activeTabId, [userMsg, assistantMsg]);
     setInput("");
     messageBufferRef.current.set(activeTabId, "");
 
-    // Now handle WebSocket connection and sending
+    // Set loading state immediately when starting to send
+    setTabLoading(activeTabId, true);
+
     const ws = getOrCreateWebSocket(activeTabId);
     
     const sendToWebSocket = () => {
@@ -247,16 +474,17 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       } catch (error) {
         console.error("Failed to send message:", error);
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+        setTabLoading(activeTabId, false); // Stop loading on error
       }
     };
 
     if (ws.readyState === WebSocket.OPEN) {
       sendToWebSocket();
     } else if (ws.readyState === WebSocket.CONNECTING) {
-      // Add timeout for connection attempt
       const connectionTimeout = setTimeout(() => {
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
-      }, 10000); // 10 second timeout
+        setTabLoading(activeTabId, false); // Stop loading on timeout
+      }, 10000);
       
       ws.addEventListener('open', () => {
         clearTimeout(connectionTimeout);
@@ -266,14 +494,15 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       ws.addEventListener('error', () => {
         clearTimeout(connectionTimeout);
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+        setTabLoading(activeTabId, false); // Stop loading on error
       }, { once: true });
     } else {
-      // WebSocket is in CLOSED state
       updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+      setTabLoading(activeTabId, false); // Stop loading if WebSocket is not available
     }
-  }, [input, activeTabId, activeTab.selectedCourse, chatConfig, addMessagesToTab, getOrCreateWebSocket, updateAssistantMessage]);
+  }, [input, activeTabId, activeTab.selectedCourse, chatConfig, canPost, isCurrentTabLoading, addMessagesToTab, getOrCreateWebSocket, updateAssistantMessage, setTabLoading]);
 
-  // Handle popup close
+  // Memoized popup handlers
   const handlePopupClose = useCallback(() => {
     setIsPopupOpen(false);
     if (pendingPostGeneration) {
@@ -282,27 +511,26 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
     }
   }, [pendingPostGeneration, addSimpleAIResponse]);
 
-  // Handle successful post generation (called when popup finishes posting)
   const handlePostSuccess = useCallback(() => {
     setIsPopupOpen(false);
     setPendingPostGeneration(false);
     addSimpleAIResponse("I posted to Piazza for you! Keep an eye on Piazza for an answer to your question.");
   }, [addSimpleAIResponse]);
 
-  // Tab management
+  // Optimized tab management functions
   const createNewTab = useCallback(() => {
     if (tabs.length >= MAX_NUMBER_OF_TABS) return;
     const id = Date.now();
-    let nextNumber = tabs.length + 1;
+    const nextNumber = tabs.length + 1;
     const newTab: ChatTab = { 
       id, 
       title: `Chat ${nextNumber}`, 
       messages: [],
-      selectedCourse: COURSES[0] // Default to first course for new tabs
+      selectedCourse: COURSES[0]
     };
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(id);
-  }, [tabs.length]);
+  }, [tabs.length, setTabs, setActiveTabId]);
 
   const startEditingTab = useCallback((tabId: number, currentTitle: string) => {
     setEditingTab({ id: tabId, title: currentTitle });
@@ -317,7 +545,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       )
     );
     setEditingTab(null);
-  }, []);
+  }, [setTabs]);
 
   const closeTab = useCallback((tabId: number) => {
     setTabs(prev => {
@@ -329,6 +557,10 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
       // Clean up refs and WebSocket connection for closed tab
       messageBufferRef.current.delete(tabId);
       currentAssistantIdRef.current.delete(tabId);
+      tabScrollPositionsRef.current.delete(tabId); // Clean up scroll position
+      
+      // Clean up loading state for closed tab
+      setTabLoading(tabId, false);
       
       const ws = wsConnectionsRef.current.get(tabId);
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -342,23 +574,21 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
         if (nextTab) {
           setActiveTabId(nextTab.id);
         } else {
-          // Create new tab if none exist
           const newId = Date.now();
           setActiveTabId(newId);
           return [{ 
             id: newId, 
             title: "Chat 1", 
             messages: [],
-            selectedCourse: COURSES[0] // Default to first course
+            selectedCourse: COURSES[0]
           }];
         }
       }
       
       return newTabs;
     });
-  }, [activeTabId]);
+  }, [activeTabId, setTabs, setActiveTabId, setTabLoading]);
 
-  // Course change handler - updates the current tab's course
   const handleCourseChange = useCallback((newCourse: string) => {
     setTabs(prev =>
       prev.map(tab =>
@@ -367,102 +597,19 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
           : tab
       )
     );
-  }, [activeTabId]);
+  }, [activeTabId, setTabs]);
 
-  // Event handlers
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  // Memoized event handlers
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
-  };
+  }, [sendMessage]);
 
-  const handleConfigChange = (key: keyof ChatConfig, value: string | boolean) => {
+  const handleConfigChange = useCallback((key: keyof ChatConfig, value: string | boolean) => {
     setChatConfig(prev => ({ ...prev, [key]: value }));
-  };
-
-  // Theme-based class names
-  const themeClasses = {
-    background: isDark 
-      ? "bg-gradient-to-b from-slate-900 via-slate-800 to-slate-950 text-white" 
-      : "bg-gradient-to-b from-blue-50 via-white to-blue-100 text-gray-900",
-    
-    mainContainer: isDark 
-      ? "" 
-      : "",
-
-    frostedPopup: isDark
-    ? "bg-white/10 border border-white/20 text-white backdrop-blur-sm shadow-2xl"
-    : "bg-white/80 border border-gray-300/40 text-gray-900 backdrop-blur-md shadow-2xl",
-    
-    tabBar: isDark 
-      ? "bg-slate-800/60 border border-gray-600/50 backdrop-blur-lg" 
-      : "border border-gray-300/50 bg-gray-50/40 backdrop-blur-lg",
-    
-    activeTab: isDark 
-      ? "bg-slate-700 text-white border-b-2 border-blue-500" 
-      : "bg-white text-gray-900 border-b-2 border-blue-500",
-    
-    inactiveTab: isDark 
-      ? "text-slate-300 hover:bg-slate-700" 
-      : "text-gray-600 hover:bg-gray-200/40",
-    
-    inputArea: isDark 
-      ? "" 
-      : "",
-    
-    inputContainer: isDark 
-      ? "border border-white/20 bg-white/6 backdrop-blur-sm" 
-      : "border border-gray-300/50 bg-gray-50/50 backdrop-blur-sm",
-    
-    select: isDark 
-      ? "bg-slate-700 border border-white/20 text-white" 
-      : "bg-white border border-gray-300 text-gray-900",
-    
-    textarea: isDark 
-      ? "bg-slate-700 border border-white/20 placeholder-white/60 text-white" 
-      : "bg-white border border-gray-300 placeholder-gray-400 text-gray-900",
-    
-    sendButton: isDark 
-      ? "bg-slate-600 hover:bg-slate-500 border border-white/20 text-white" 
-      : "bg-black hover:bg-black/80 text-white",
-    
-    userBubble: isDark 
-      ? "bg-white/20 text-white border-white/8" 
-      : "bg-slate-100 text-black border-slate-500/20",
-    
-    assistantBubble: isDark 
-      ? "bg-white/6 text-white border-white/6" 
-      : "bg-white text-gray-900 border-gray-200/50 shadow-sm",
-    
-    footer: isDark 
-      ? "text-white/40" 
-      : "text-gray-500",
-    
-    closeButton: isDark 
-      ? "text-slate-400 group-hover:text-white hover:bg-slate-600" 
-      : "text-gray-400 group-hover:text-gray-600 hover:bg-gray-200",
-    
-    tooltip: isDark
-      ? "bg-slate-800 text-white" 
-      : "bg-slate-300 text-black",
-    
-    editInput: isDark 
-      ? "bg-slate-600 text-white" 
-      : "bg-white text-gray-900",
-    
-    label: isDark 
-      ? "text-white" 
-      : "text-gray-700",
-    
-    logo: isDark 
-      ? "bg-gradient-to-br from-slate-500 to-blue-700" 
-      : "bg-gradient-to-br from-slate-500 to-blue-700",
-      
-    fadeMask: isDark
-      ? "bg-gradient-to-b from-transparent to-slate-900"
-      : "bg-gradient-to-b from-transparent to-blue-50"
-  };
+  }, []);
 
   return (
     <div className={`h-screen ${themeClasses.background} flex flex-col relative`}>
@@ -470,7 +617,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
         <div className={`w-full max-w-5xl flex flex-col rounded-2xl ${themeClasses.mainContainer} relative overflow-hidden`}>
           
           {/* Tab Bar */}
-          <div className={`relative z-30`}>
+          <div className="relative z-30">
             <TabBar
               tabs={tabs}
               activeTabId={activeTabId}
@@ -486,16 +633,16 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
             />
           </div>
 
-          {/* Fade mask for messages that scroll under the tab bar - covers bottom half */}
+          {/* Fade mask */}
           <div className={`absolute top-6 left-0 right-0 h-5 ${themeClasses.fadeMask} z-20 pointer-events-none`} />
 
-          {/* Messages*/}
+          {/* Messages */}
           <div
             ref={messagesContainerRef}
             className="absolute top-0 bottom-[153px] left-0 right-0 overflow-y-auto p-6 pt-16 space-y-3 z-10"
             style={{ 
               backdropFilter: "blur(6px)",
-              scrollbarWidth: 'none'  // Hides scrollbar
+              scrollbarWidth: 'none'
             }}
           >
             {activeTab.messages.length === 0 ? (
@@ -517,6 +664,7 @@ const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-ta
             input={input}
             chatConfig={chatConfig}
             currentCourse={activeTab.selectedCourse}
+            isLoading={isCurrentTabLoading}
             onInputChange={setInput}
             onConfigChange={handleConfigChange}
             onCourseChange={handleCourseChange}
