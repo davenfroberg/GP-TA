@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 interface PostGeneratorPopupProps {
   isOpen: boolean;
   onClose: () => void;
-  onPostSuccess?: () => void;
+  onPostSuccess?: (postLink: string) => void;
   themeClasses: any; // themeClasses from PiazzaChat
   activeTab?: any; // activeTab from PiazzaChat
 }
@@ -15,6 +15,91 @@ interface GeneratedPost {
   post_title: string;
   post_content: string;
 }
+
+// Course folder mappings with hierarchical structure
+interface FolderItem {
+  name: string;
+  children?: string[];
+}
+
+const COURSE_FOLDERS: Record<string, FolderItem[]> = {
+  "CPSC 110": [
+    { name: "logistics" },
+    { name: "lectures" },
+    { 
+      name: "labs", 
+      children: ["general_lab_questions", "lab1", "lab2", "lab3", "lab4", "lab5", "lab6", "lab7", "lab8", "lab9", "lab10", "lab11"]
+    },
+    { name: "problem_sets",
+      children: ["general_problem_set_questions", "ps1", "ps2", "ps3", "ps4", "ps5", "ps6", "ps7", "ps8", "ps9", "ps10", "ps11"]
+    },
+    { name: "exams",
+      children: ["general_exam_questions", "mt1", "mt2", "final"]
+    },
+    { name: "other" }
+  ],
+  "CPSC 121": [
+    { name: "logistics" },
+    { name: "other" },
+    { name: "lecture" },
+    { name: "homework" },
+    { 
+      name: "labs", 
+      children: ["lab1", "lab2", "lab3", "lab4", "lab5", "lab6", "lab7", "lab8", "lab9"]
+    },
+    { name: "practice_questions",
+      children: ["pq1", "pq2", "pq3", "pq4", "pq5", "pq6", "pq7", "pq8", "pq9", "pq10", "pq11", "pq_labs"]
+    },
+    { name: "quizzes",
+      children: ["q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11"]
+    },
+    { name: "final" },
+    { name: "examlets" }
+  ],
+  "CPSC 330": [
+    { name: "logistics" },
+    { name: "lecture" },
+    { name: "hw1" },
+    { name: "hw2" },
+    { name: "hw3" },
+    { name: "hw4" },
+    { name: "hw5" },
+    { name: "hw6" },
+    { name: "hw7" },
+    { name: "hw8" },
+    { name: "hw9" },
+    { name: "exam" },
+    { name: "other" },
+    { name: "grading_concerns" },
+    { name: "iclicker" },
+    { name: "midterm" }
+  ],
+  "CPSC 404": [
+    { name: "exams" },
+    { name: "logistics" },
+    { name: "other" },
+    { name: "lecture" },
+    { name: "in_class_exercises" },
+    { name: "sql_server_lab" }
+  ],
+  "CPSC 418": [
+    { name: "exam" },
+    { name: "logistics" },
+    { name: "other" },
+    { 
+      name: "exams", 
+      children: ["mt1", "mt2", "final"]
+    },
+    { name: "bug_bounties" },
+    { name: "pikas",
+      children: ["pika1", "pika2", "pika3", "pika4", "pika5", "pika6", "pika7", "pika8", "pika9", "pika10"]
+    },
+    { name: "lecture" },
+    { name: "hw",
+      children: ["hw1", "hw2", "hw3", "hw4", "hw5", "hw6", "hw7"]
+    }
+  ]
+};
 
 export default function PostGeneratorPopup({
   isOpen,
@@ -28,6 +113,10 @@ export default function PostGeneratorPopup({
   const [generatedPost, setGeneratedPost] = useState<GeneratedPost | null>(null);
   const [editableTitle, setEditableTitle] = useState("");
   const [editableContent, setEditableContent] = useState("");
+  const [postAnonymously, setPostAnonymously] = useState(true);
+  const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [selectedCourse, setSelectedCourse] = useState("");
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -45,8 +134,19 @@ export default function PostGeneratorPopup({
       setGeneratedPost(null);
       setEditableTitle("");
       setEditableContent("");
+      setPostAnonymously(true);
+      setSelectedFolders(new Set());
+      setExpandedFolders(new Set());
+      setSelectedCourse("");
     }
   }, [isOpen]);
+
+  // Set initial course when popup opens
+  useEffect(() => {
+    if (isOpen && activeTab?.selectedCourse) {
+      setSelectedCourse(activeTab.selectedCourse);
+    }
+  }, [isOpen, activeTab?.selectedCourse]);
 
   // Close on Escape key
   useEffect(() => {
@@ -69,6 +169,10 @@ export default function PostGeneratorPopup({
     setGeneratedPost(null);
     setEditableTitle("");
     setEditableContent("");
+    setPostAnonymously(true);
+    setSelectedFolders(new Set(["General"]));
+    setExpandedFolders(new Set());
+    setSelectedCourse("");
     onClose();
   };
 
@@ -131,13 +235,120 @@ export default function PostGeneratorPopup({
   const handlePost = async () => {
     setState('posting');
     
-    // Simulate 3 second loading
-    setTimeout(() => {
-      // Call success callback and close popup
-      if (onPostSuccess) {
-        onPostSuccess();
+    try {
+      const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/post-to-piazza`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          api_key: import.meta.env.VITE_GP_TA_API_KEY,
+          course: activeTab?.selectedCourse || "CPSC 110",
+          post_type: "question",
+          post_folders: getSelectedPaths(),
+          post_subject: editableTitle,
+          post_content: editableContent,
+          anonymous: postAnonymously
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
       }
-    }, 3000);
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        // Call success callback and close popup
+        if (onPostSuccess) {
+          onPostSuccess(data.post_link);
+        }
+      } else {
+        throw new Error(data.error || 'Failed to post to Piazza');
+      }
+      
+    } catch (error) {
+      console.error('Error posting to Piazza:', error);
+      setState('editing'); // Go back to editing state on error
+    }
+  };
+
+  // Get available folders for the current course
+  const getAvailableFolders = () => {
+    if (!activeTab?.selectedCourse) return [{ name: "General" }];
+    return COURSE_FOLDERS[activeTab.selectedCourse] || [{ name: "General" }];
+  };
+
+  // Handle folder selection
+  const handleFolderSelect = (folderName: string, keepDropdownOpen = false) => {
+    setSelectedFolders(prev => {
+      const newSet = new Set(prev);
+      const folder = getAvailableFolders().find(f => f.name === folderName);
+      
+      if (newSet.has(folderName)) {
+        // Deselecting parent - also deselect all children
+        newSet.delete(folderName);
+        if (folder?.children) {
+          folder.children.forEach(child => {
+            newSet.delete(`${folderName}/${child}`);
+          });
+        }
+      } else {
+        // Selecting parent
+        newSet.add(folderName);
+      }
+      return newSet;
+    });
+    
+    // Close other dropdowns when selecting a folder (unless keeping dropdown open)
+    if (!keepDropdownOpen) {
+      setExpandedFolders(new Set());
+    }
+  };
+
+  // Handle dropdown toggle (without selecting the folder)
+  const handleDropdownToggle = (folderName: string) => {
+    setExpandedFolders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderName)) {
+        newSet.delete(folderName);
+      } else {
+        newSet.add(folderName);
+      }
+      return newSet;
+    });
+  };
+
+  // Handle subfolder selection
+  const handleSubFolderSelect = (parentFolderName: string, subFolderName: string) => {
+    setSelectedFolders(prev => {
+      const newSet = new Set(prev);
+      const fullPath = `${parentFolderName}:${subFolderName}`;
+      
+      if (newSet.has(fullPath)) {
+        newSet.delete(fullPath);
+      } else {
+        newSet.add(fullPath);
+        // Also select the parent folder when selecting a child
+        newSet.add(parentFolderName);
+      }
+      return newSet;
+    });
+  };
+
+  // Check if a folder is selected
+  const isFolderSelected = (folderName: string) => {
+    return selectedFolders.has(folderName);
+  };
+
+  // Check if a subfolder is selected
+  const isSubFolderSelected = (parentFolderName: string, subFolderName: string) => {
+    return selectedFolders.has(`${parentFolderName}:${subFolderName}`);
+  };
+
+  // Get all selected paths
+  const getSelectedPaths = () => {
+    return Array.from(selectedFolders);
   };
 
   const renderInputState = () => (
@@ -152,7 +363,7 @@ export default function PostGeneratorPopup({
       {/* Instructions */}
       <p className={`text-sm mb-4 ${themeClasses.label} opacity-80`}>
         Please describe your post in more detail so we can generate a clear
-        and helpful Piazza question.
+        and helpful Piazza question. Be as specific as possible.
       </p>
 
       {/* Textarea */}
@@ -207,6 +418,99 @@ export default function PostGeneratorPopup({
         </h2>
       </div>
 
+       {/* Course Display */}
+       <div className="mb-3">
+         <div className="flex items-center gap-2">
+           <span className={`text-sm font-medium ${themeClasses.label}`}>
+             Posting to:
+           </span>
+           <span className={`px-2 py-1 rounded text-sm ${themeClasses.textarea} bg-gray-50 dark:bg-gray-750`}>
+             {selectedCourse || "Select a course"}
+           </span>
+         </div>
+       </div>
+
+      {/* Folder Selection */}
+      <div className="mb-3">
+        <label className={`block text-sm font-medium ${themeClasses.label} mb-2`}>
+          Select Folder
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {getAvailableFolders().map((folder) => (
+            <div key={folder.name} className="relative">
+              <div className="flex">
+                {folder.children ? (
+                  <>
+                    <button
+                      onClick={() => handleDropdownToggle(folder.name)}
+                      className={`px-3 py-1.5 rounded-l-lg text-sm font-medium transition-colors border-2 ${
+                        isFolderSelected(folder.name)
+                          ? "bg-blue-500 text-white border-blue-500"
+                          : `${themeClasses.textarea} hover:bg-gray-100 dark:hover:bg-gray-700 border-transparent`
+                      }`}
+                    >
+                      {folder.name}
+                    </button>
+                    <button
+                      onClick={() => handleDropdownToggle(folder.name)}
+                      className={`px-2 py-1.5 rounded-r-lg text-xs transition-colors border-2 border-l-0 ${
+                        isFolderSelected(folder.name)
+                          ? "bg-blue-500 text-blue-200 border-blue-500"
+                          : `${themeClasses.textarea} hover:bg-gray-100 dark:hover:bg-gray-700 border-transparent`
+                      }`}
+                    >
+                      {expandedFolders.has(folder.name) ? '▼' : '▶'}
+                    </button>
+                  </>
+                ) : (
+                    <button
+                      onClick={() => handleFolderSelect(folder.name)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border-2 ${
+                        isFolderSelected(folder.name)
+                          ? "bg-blue-500 text-white border-blue-500"
+                          : `${themeClasses.textarea} hover:bg-gray-100 dark:hover:bg-gray-700 border-transparent`
+                      }`}
+                    >
+                      {folder.name}
+                    </button>
+                )}
+              </div>
+              
+              {/* Subfolder dropdown */}
+              {folder.children && expandedFolders.has(folder.name) && (
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-10 min-w-max">
+                  {/* Parent folder option */}
+                  <button
+                    onClick={() => handleFolderSelect(folder.name, true)}
+                    className={`w-full text-left px-3 py-1.5 text-sm transition-colors rounded-t-lg ${
+                      isFolderSelected(folder.name)
+                        ? "bg-blue-400 text-white"
+                        : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    {folder.name}
+                  </button>
+                  {/* Child folders */}
+                  {folder.children.map((subFolder) => (
+                    <button
+                      key={subFolder}
+                      onClick={() => handleSubFolderSelect(folder.name, subFolder)}
+                      className={`w-full text-left px-3 py-1.5 text-sm transition-colors last:rounded-b-lg ${
+                        isSubFolderSelected(folder.name, subFolder)
+                          ? "bg-blue-400 text-white"
+                          : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      {subFolder}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Title Input */}
       <div className="mb-4">
         <label className={`block text-sm font-medium ${themeClasses.label} mb-2`}>
@@ -235,6 +539,20 @@ export default function PostGeneratorPopup({
         />
       </div>
 
+      {/* Anonymous Post Checkbox */}
+      <div className="flex items-center mb-6">
+        <input
+          type="checkbox"
+          id="postAnonymouslyEdit"
+          checked={postAnonymously}
+          onChange={(e) => setPostAnonymously(e.target.checked)}
+          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+        />
+        <label htmlFor="postAnonymouslyEdit" className={`ml-2 text-sm font-medium ${themeClasses.label}`}>
+          Post anonymously
+        </label>
+      </div>
+
       {/* Footer */}
       <div className="flex justify-end gap-3">
         <button 
@@ -245,8 +563,8 @@ export default function PostGeneratorPopup({
         </button>
         <button
           onClick={handlePost}
-          className={`px-4 py-2 rounded-xl ${themeClasses.sendButton} ${(!editableTitle.trim() || !editableContent.trim()) ? "opacity-30 hover:opacity-37" : "active:scale-95 cursor-pointer"}`}
-          disabled={!editableTitle.trim() || !editableContent.trim()}
+          className={`px-4 py-2 rounded-xl ${themeClasses.sendButton} ${(!editableTitle.trim() || !editableContent.trim() || selectedFolders.size === 0) ? "opacity-30 hover:opacity-37" : "active:scale-95 cursor-pointer"}`}
+          disabled={!editableTitle.trim() || !editableContent.trim() || selectedFolders.size === 0}
         >
           Post to Piazza
         </button>

@@ -1,5 +1,5 @@
 #!/bin/zsh
-LAMBDA_NAME="post-to-piazza"
+LAMBDA_NAME="general-query"
 ZIP_FILE="code.zip"
 REGION="us-west-2"
 

@@ -511,10 +511,11 @@ export default function PiazzaChat() {
     }
   }, [pendingPostGeneration, addSimpleAIResponse]);
 
-  const handlePostSuccess = useCallback(() => {
+  const handlePostSuccess = useCallback((postLink: string) => {
     setIsPopupOpen(false);
     setPendingPostGeneration(false);
-    addSimpleAIResponse("I posted to Piazza for you! Keep an eye on Piazza for an answer to your question.");
+    const message = "I posted to Piazza for you! Keep an eye on Piazza for an answer to your question. See your post [here!](" + postLink + ")";
+    addSimpleAIResponse(message);
   }, [addSimpleAIResponse]);
 
   // Optimized tab management functions
@@ -588,6 +589,16 @@ export default function PiazzaChat() {
       return newTabs;
     });
   }, [activeTabId, setTabs, setActiveTabId, setTabLoading]);
+
+  // In your parent component that manages the tabs
+  useEffect(() => {
+    const activeTab = tabs.find(tab => tab.id === activeTabId);
+    if (activeTab) {
+      document.title = `GP-TA | ${activeTab.title}`;
+    } else {
+      document.title = 'GP-TA';
+    }
+  }, [activeTabId, tabs]);
 
   const handleCourseChange = useCallback((newCourse: string) => {
     setTabs(prev =>
