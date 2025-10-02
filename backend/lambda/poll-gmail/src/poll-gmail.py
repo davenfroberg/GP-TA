@@ -42,17 +42,22 @@ class AWSService:
     def is_message_processed(self, message_id: str) -> bool:
         """Check if a Gmail message has already been processed."""
         try:
+            response = self.dynamodb.get_item(
+                TableName=Config.GMAIL_TABLE_NAME,
+                Key={"gmail_message_id": {"S": message_id}}
+            )
+            
+            if 'Item' in response:
+                return True  # Message already exists
+            
             self.dynamodb.put_item(
                 TableName=Config.GMAIL_TABLE_NAME,
-                Item={"gmail_message_id": {"S": message_id}},
-                ConditionExpression="attribute_not_exists(gmail_message_id)"
+                Item={"gmail_message_id": {"S": message_id}}
             )
             return False  # Message is new
+            
         except ClientError as e:
-            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                return True  # Message already exists
-            else:
-                raise RuntimeError(f"DynamoDB error: {e}")
+            raise RuntimeError(f"DynamoDB error: {e}")
     
     def send_to_queue(self, post_id: str, course_id: str) -> None:
         """Send Piazza post information to SQS queue."""

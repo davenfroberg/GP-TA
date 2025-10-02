@@ -594,7 +594,7 @@ export default function PiazzaChat() {
   useEffect(() => {
     const activeTab = tabs.find(tab => tab.id === activeTabId);
     if (activeTab) {
-      document.title = `GP-TA | ${activeTab.title}`;
+      document.title = `${activeTab.title} | GP-TA`;
     } else {
       document.title = 'GP-TA';
     }

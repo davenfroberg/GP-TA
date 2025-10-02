@@ -136,6 +136,11 @@ class ContextRetriever:
             (item['title'] for item in items if item.get('type') == 'question'), 
             'Unknown title'
         )
+
+        question_text = next(
+            (item['chunk_text'] for item in items if item.get('type') == 'question'), 
+            ''
+        )
         
         # Organize answers by type
         instructor_chunks = []
@@ -159,13 +164,13 @@ class ContextRetriever:
         # Build context string
         return self._format_question_context(
             question_title, instructor_chunks, student_chunks, 
-            instructor_name, student_is_endorsed, prioritize_instructor
+            instructor_name, student_is_endorsed, prioritize_instructor, question_text
         )
     
     def _format_question_context(
         self, question_title: str, instructor_chunks: List[str], 
         student_chunks: List[str], instructor_name: Optional[str], 
-        student_is_endorsed: bool, prioritize_instructor: bool
+        student_is_endorsed: bool, prioritize_instructor: bool, question_text: str
     ) -> str:
         """Format question context into a readable string."""
         context_parts = []
@@ -197,10 +202,12 @@ class ContextRetriever:
                 ""
             ])
         elif not instructor_answer:
-            context_parts.append(
-                f'Someone asked a question with title: "{question_title}", but there are no answers yet.'
-            )
-        
+            context_parts.extend([
+                f'Someone asked the following question but there are no answers yet:',
+                "",
+                question_text,
+                ""
+            ])
         return "\n".join(context_parts).strip()
     
     def get_discussion_context(self, parent_id: str, blob_id: str, discussion_chunk_id: str) -> str:
