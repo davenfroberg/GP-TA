@@ -1,5 +1,5 @@
 import json
-from predict_intent import predict_intent # this is in lambda layer
+from predict_intent import predict_intent # type: ignore ; b/c this is in lambda layer
 from endpoints import general_query, summarize, overview
 from utils.clients import apigw
 from utils.utils import send_websocket_message
