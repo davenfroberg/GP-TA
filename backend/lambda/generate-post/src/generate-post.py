@@ -29,25 +29,9 @@ def get_secret_api_key(secret_name: str) -> str:
     client = get_secrets_client()
     
     try:
-        response = client.get_secret_value(SecretId=secret_name)
+        response = client.get_secret_value(SecretId='api_keys')
         secret_dict = json.loads(response['SecretString'])
-        return secret_dict['api_key']
-    except ClientError as e:
-        print(f"Error retrieving secret: {e}")
-        raise
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        raise
-
-
-def get_secret_api_key(secret_name: str) -> str:
-    """Retrieve API key from AWS Secrets Manager."""
-    client = get_secrets_client()
-    
-    try:
-        response = client.get_secret_value(SecretId=secret_name)
-        secret_dict = json.loads(response['SecretString'])
-        return secret_dict['api_key']
+        return secret_dict[secret_name]
     except ClientError as e:
         print(f"Error retrieving secret: {e}")
         raise

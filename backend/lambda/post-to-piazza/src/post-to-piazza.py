@@ -14,7 +14,9 @@ course_to_network = {
 
 SECRETS = {
     "PIAZZA": "piazza",
+    "API_KEY": "api_gateway"
 }
+
 AWS_REGION_NAME = "us-west-2"
 
 def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
@@ -25,9 +27,9 @@ def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
             region_name=region_name
         )
         try:
-            response = client.get_secret_value(SecretId=secret_name)
+            response = client.get_secret_value(SecretId='api_keys')
             secret_dict = json.loads(response['SecretString'])
-            return secret_dict['api_key']
+            return secret_dict[secret_name]
         except ClientError as e:
             print(f"Error retrieving secret: {e}")
             raise

@@ -1,5 +1,5 @@
 #!/bin/zsh
-LAMBDA_NAME="daily-scrape"
+LAMBDA_NAME="scrape"
 ZIP_FILE="code.zip"
 REGION="us-west-2"
 
