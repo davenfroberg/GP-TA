@@ -29,7 +29,6 @@ export default function PiazzaChat() {
   const [editingTab, setEditingTab] = useState<{id: number, title: string} | null>(null);
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [pendingPostGeneration, setPendingPostGeneration] = useState(false);
-  const [canPost, setCanPost] = useState(false);
 
   // Add loading state to track which tabs are processing messages
   const [loadingTabs, setLoadingTabs] = useState<Set<number>>(new Set());
@@ -253,6 +252,7 @@ export default function PiazzaChat() {
     // Restore scroll position for the new active tab
     restoreScrollPosition(activeTabId);
   }, [activeTabId, restoreScrollPosition]);
+  
 
   // Memoized WebSocket creation function
   const getOrCreateWebSocket = useCallback((tabId: number): WebSocket => {
@@ -294,6 +294,33 @@ export default function PiazzaChat() {
     };
   }, []);
 
+  const addMessagesToTab = useCallback((tabId: number, newMessages: Message[]) => {
+    setTabs(prev =>
+      prev.map(tab =>
+        tab.id === tabId
+          ? { ...tab, messages: [...tab.messages, ...newMessages] }
+          : tab
+      )
+    );
+    
+    // Force scroll to bottom when adding new messages
+    if (tabId === activeTabId) {
+      shouldAutoScrollRef.current = true;
+      setTimeout(() => scrollToBottom(true), 10);
+    }
+  }, [setTabs, activeTabId, scrollToBottom]);
+  
+  // Optimized simple AI response
+  const addSimpleAIResponse = useCallback((responseText: string) => {
+    const assistantMsgId = Date.now();
+    const assistantMsg: Message = { 
+      id: assistantMsgId, 
+      role: "assistant", 
+      text: responseText 
+    };
+    addMessagesToTab(activeTabId, [assistantMsg]);
+  }, [activeTabId, addMessagesToTab]);
+
   // Optimized WebSocket message handler
   const handleWebSocketMessage = useCallback((event: MessageEvent, tabId: number) => {
     let data;
@@ -304,17 +331,35 @@ export default function PiazzaChat() {
       return;
     }
 
-    // Batch state updates to reduce re-renders
     switch (data.type) {
       case "chat_done":
         messageBufferRef.current.delete(tabId);
-        // Stop loading state when chat is done
         setTabLoading(tabId, false);
-        // Ensure we scroll to bottom when streaming is complete
+        console.log(data)
+        
+        // Handle needs_more_context flag
+        if (data.needs_more_context !== undefined) {
+          setTabs(prev => {
+            const assistantId = currentAssistantIdRef.current.get(tabId);
+            return prev.map(tab => {
+              if (tab.id !== tabId) return tab;
+              
+              const updatedMessages = tab.messages.map(m => 
+                m.role === "assistant" && m.id === assistantId
+                  ? { ...m, needsMoreContext: data.needs_more_context }
+                  : m
+              );
+              
+              return { ...tab, messages: updatedMessages };
+            });
+          });
+        }
+        
         if (tabId === activeTabId) {
           setTimeout(() => scrollToBottom(), 100);
         }
         break;
+      
       case "chat_chunk":
         const currentBuffer = messageBufferRef.current.get(tabId) || "";
         const newBuffer = currentBuffer + data.message;
@@ -327,9 +372,7 @@ export default function PiazzaChat() {
       case "chat_start":
         messageBufferRef.current.set(tabId, "");
         updateAssistantMessage(tabId, "");
-        // Start loading state when chat begins
         setTabLoading(tabId, true);
-        // Enable auto-scroll when new message starts
         if (tabId === activeTabId) {
           shouldAutoScrollRef.current = true;
         }
@@ -340,7 +383,133 @@ export default function PiazzaChat() {
         }
         break;
     }
-  }, [activeTabId, scrollToBottom, setTabLoading]);
+  }, [activeTabId, scrollToBottom, setTabLoading, setTabs]);
+
+const handleNotifyMe = useCallback(async (messageId: number) => {
+    try {
+      // Set loading state
+      setTabs(prev =>
+        prev.map(tab =>
+          tab.id === activeTabId
+            ? {
+                ...tab,
+                messages: tab.messages.map(m =>
+                  m.id === messageId
+                    ? { ...m, notificationLoading: true }
+                    : m
+                )
+              }
+            : tab
+        )
+      );
+
+      // Find the assistant message index
+      const assistantMessageIndex = activeTab.messages.findIndex(m => m.id === messageId);
+      
+      if (assistantMessageIndex === -1) {
+        console.error("Assistant message not found");
+        setTabs(prev =>
+          prev.map(tab =>
+            tab.id === activeTabId
+              ? {
+                  ...tab,
+                  messages: tab.messages.map(m =>
+                    m.id === messageId
+                      ? { ...m, notificationLoading: false }
+                      : m
+                  )
+                }
+              : tab
+          )
+        );
+        addSimpleAIResponse("Sorry, I couldn't process your notification request.");
+        return;
+      }
+      
+      // The user's message should be right before the assistant's message
+      const usersMessageIndex = assistantMessageIndex - 1;
+      
+      if (usersMessageIndex < 0 || !activeTab.messages[usersMessageIndex]?.text) {
+        console.error("User message not found or empty");
+        setTabs(prev =>
+          prev.map(tab =>
+            tab.id === activeTabId
+              ? {
+                  ...tab,
+                  messages: tab.messages.map(m =>
+                    m.id === messageId
+                      ? { ...m, notificationLoading: false }
+                      : m
+                  )
+                }
+              : tab
+          )
+        );
+        addSimpleAIResponse("Sorry, I couldn't find your original question.");
+        return;
+      }
+
+      const userQuery = activeTab.messages[usersMessageIndex].text;
+
+      const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_query: userQuery
+        })
+      });
+        
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+        
+      const data = await response.json();
+      console.log("Notify API response:", data);
+
+      // Set notification as created
+      setTabs(prev =>
+        prev.map(tab =>
+          tab.id === activeTabId
+            ? {
+                ...tab,
+                messages: tab.messages.map(m =>
+                  m.id === messageId
+                    ? { ...m, notificationLoading: false, notificationCreated: true }
+                    : m
+                )
+              }
+            : tab
+        )
+      );
+    } catch (error) {
+      console.error("Error in handleNotifyMe:", error);
+      // Reset loading state on error
+      setTabs(prev =>
+        prev.map(tab =>
+          tab.id === activeTabId
+            ? {
+                ...tab,
+                messages: tab.messages.map(m =>
+                  m.id === messageId
+                    ? { ...m, notificationLoading: false }
+                    : m
+                )
+              }
+            : tab
+        )
+      );
+      addSimpleAIResponse("Sorry, something went wrong with your notification request. Please try again.");
+    }
+  }, [activeTabId, activeTab.messages, addSimpleAIResponse, setTabs]);
+
+  const handlePostToPiazza = useCallback((messageId: number) => {
+    // Open the post generator popup
+    setIsPopupOpen(true);
+    setPendingPostGeneration(true);
+  }, []);
+  
 
   // Optimized message update functions with reduced object creation
   const updateAssistantMessage = useCallback((tabId: number, text: string) => {
@@ -377,33 +546,6 @@ export default function PiazzaChat() {
     });
   }, [setTabs]);
 
-  const addMessagesToTab = useCallback((tabId: number, newMessages: Message[]) => {
-    setTabs(prev =>
-      prev.map(tab =>
-        tab.id === tabId
-          ? { ...tab, messages: [...tab.messages, ...newMessages] }
-          : tab
-      )
-    );
-    
-    // Force scroll to bottom when adding new messages
-    if (tabId === activeTabId) {
-      shouldAutoScrollRef.current = true;
-      setTimeout(() => scrollToBottom(true), 10);
-    }
-  }, [setTabs, activeTabId, scrollToBottom]);
-
-  // Optimized simple AI response
-  const addSimpleAIResponse = useCallback((responseText: string) => {
-    const assistantMsgId = Date.now();
-    const assistantMsg: Message = { 
-      id: assistantMsgId, 
-      role: "assistant", 
-      text: responseText 
-    };
-    addMessagesToTab(activeTabId, [assistantMsg]);
-  }, [activeTabId, addMessagesToTab]);
-
   // Optimized sendMessage with reduced state updates
   const sendMessage = useCallback(() => {
     // Prevent sending if tab is currently loading
@@ -421,30 +563,6 @@ export default function PiazzaChat() {
     };
 
     const assistantMsgId = userMsgId + 1;
-
-    // Handle affirmative responses
-    if (AFFIRMATIVES.includes(trimmed.toLowerCase()) && canPost) {
-      setCanPost(false);
-      setIsPopupOpen(true);
-      setPendingPostGeneration(true);
-      setInput("");
-      addMessagesToTab(activeTabId, [userMsg]);
-      return;
-    }
-
-    if (NEGATIVES.includes(trimmed.toLowerCase()) && canPost) {
-      setCanPost(false);
-      const assistantMsg: Message = { 
-        id: assistantMsgId, 
-        role: "assistant", 
-        text: "Okay, I won't generate a post for you!" 
-      };
-      setInput("");
-      addMessagesToTab(activeTabId, [userMsg, assistantMsg]);
-      return;
-    }
-    
-    setCanPost(true);
 
     const assistantMsg: Message = { 
       id: assistantMsgId, 
@@ -500,14 +618,13 @@ export default function PiazzaChat() {
       updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
       setTabLoading(activeTabId, false); // Stop loading if WebSocket is not available
     }
-  }, [input, activeTabId, activeTab.selectedCourse, chatConfig, canPost, isCurrentTabLoading, addMessagesToTab, getOrCreateWebSocket, updateAssistantMessage, setTabLoading]);
+  }, [input, activeTabId, activeTab.selectedCourse, chatConfig, isCurrentTabLoading, addMessagesToTab, getOrCreateWebSocket, updateAssistantMessage, setTabLoading]);
 
   // Memoized popup handlers
   const handlePopupClose = useCallback(() => {
     setIsPopupOpen(false);
     if (pendingPostGeneration) {
       setPendingPostGeneration(false);
-      addSimpleAIResponse("Okay, I won't generate a post for you!");
     }
   }, [pendingPostGeneration, addSimpleAIResponse]);
 
@@ -665,6 +782,8 @@ export default function PiazzaChat() {
                   {...message} 
                   themeClasses={themeClasses} 
                   isFirstMessage={index === 0}
+                  onNotifyMe={handleNotifyMe}
+                  onPostToPiazza={handlePostToPiazza}
                 />
               ))
             )}

@@ -36,13 +36,13 @@ class ChunkManager:
     def process_post_chunks(self, post_chunks):
         """Process chunks for a single post with deduplication"""
         for i in range(0, len(post_chunks), DYNAMO_BATCH_GET_SIZE):
-            batch = post_chunks[i:i + DYNAMO_BATCH_GET_SIZE]
+            post_batch = post_chunks[i:i + DYNAMO_BATCH_GET_SIZE]
             
             # Check for existing chunks in DynamoDB
-            existing_chunks = self._get_existing_chunks(batch)
+            existing_chunks = self._get_existing_chunks(post_batch)
             
             # Filter out duplicates and process new/updated chunks
-            chunks_to_insert = self._filter_new_chunks(batch, existing_chunks)
+            chunks_to_insert = self._filter_new_chunks(post_batch, existing_chunks)
             
             if chunks_to_insert:
                 self._store_chunks(chunks_to_insert)

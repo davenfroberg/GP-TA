@@ -2,15 +2,18 @@
 export interface Citation {
   title: string;
   url: string;
-  post_number?: string; // Optional post number for better citations
+  post_number?: string;
 }
 
 export interface Message {
   id: number;
   role: "user" | "assistant";
   text: string;
-  course?: string; // Add course to message data for user messages
+  course?: string; 
   citations?: Citation[];
+  needsMoreContext?: boolean;
+  notificationCreated?: boolean;
+  notificationLoading?: boolean;
 }
 
 export interface ChatTab {

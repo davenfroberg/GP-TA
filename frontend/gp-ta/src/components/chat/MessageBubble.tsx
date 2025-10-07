@@ -10,6 +10,8 @@ import type { Message } from "../../types/chat";
 interface MessageBubbleProps extends Message {
   themeClasses: any;
   isFirstMessage?: boolean;
+  onNotifyMe?: (messageId: number) => void;
+  onPostToPiazza?: (messageId: number) => void;
 }
 
 // Memoized Citation Component
@@ -34,7 +36,7 @@ const CitationItem = memo(({
               ? 'opacity-100 translate-y-0'
               : 'opacity-0 translate-y-2'
           }`
-        : 'opacity-100 translate-y-0' // No animation, just appear
+        : 'opacity-100 translate-y-0'
     }`}
   >
     <a
@@ -58,12 +60,18 @@ const CitationItem = memo(({
 CitationItem.displayName = 'CitationItem';
 
 function MessageBubble({ 
+  id,
   role, 
   text, 
   course, 
   citations, 
+  needsMoreContext,
+  notificationCreated,
+  notificationLoading,
   themeClasses, 
-  isFirstMessage 
+  isFirstMessage,
+  onNotifyMe,
+  onPostToPiazza
 }: MessageBubbleProps) {
   const [visibleCitations, setVisibleCitations] = useState<number>(0);
   const [shouldAnimateCitations, setShouldAnimateCitations] = useState<boolean>(false);
@@ -73,7 +81,6 @@ function MessageBubble({
 
   // Memoize markdown components to prevent recreation on every render
   const markdownComponents = useMemo(() => ({
-    // Custom code block component
     code({ node, className, children, ...props }: any) {
       const match = /language-(\w+)/.exec(className || '');
       const isInline = !match;
@@ -96,18 +103,15 @@ function MessageBubble({
         </code>
       );
     },
-    // Custom paragraph component to preserve spacing
     p({ children }: any) {
       return <p className="mb-2 last:mb-0">{children}</p>;
     },
-    // Custom list components
     ul({ children }: any) {
       return <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>;
     },
     ol({ children }: any) {
       return <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>;
     },
-    // Custom blockquote
     blockquote({ children }: any) {
       return (
         <blockquote className={`border-l-4 pl-4 italic my-2 ${themeClasses.blockquote}`}>
@@ -115,7 +119,6 @@ function MessageBubble({
         </blockquote>
       );
     },
-    // Custom headers
     h1({ children }: any) {
       return <h1 className="text-lg font-bold mb-2">{children}</h1>;
     },
@@ -125,7 +128,6 @@ function MessageBubble({
     h3({ children }: any) {
       return <h3 className="text-sm font-bold mb-1">{children}</h3>;
     },
-    // Custom link styling
     a({ href, children }: any) {
       return (
         <a 
@@ -138,7 +140,6 @@ function MessageBubble({
         </a>
       );
     },
-    // Custom table styling
     table({ children }: any) {
       return (
         <table className={`border-collapse border w-full mb-2 text-xs ${themeClasses.tableBorder}`}>
@@ -160,12 +161,11 @@ function MessageBubble({
         </td>
       );
     },
-  }), [themeClasses]); // Only recreate when theme changes
+  }), [themeClasses]);
 
-  // Enhanced citation animation effect - only animate on first appearance
+  // Enhanced citation animation effect
   useEffect(() => {
     if (!citations?.length) {
-      // Reset state when no citations
       setVisibleCitations(0);
       setShouldAnimateCitations(false);
       hasAnimatedRef.current = false;
@@ -176,17 +176,14 @@ function MessageBubble({
     const currentLength = citations.length;
     const previousLength = previousCitationsLengthRef.current;
     
-    // Check if this is the first time we're getting citations OR if new citations were added
     const isFirstTimeReceived = previousLength === 0 && currentLength > 0;
     const hasNewCitations = currentLength > previousLength;
     
     if (isFirstTimeReceived || (hasNewCitations && !hasAnimatedRef.current)) {
-      // This is the first time receiving citations, so animate them
       setShouldAnimateCitations(true);
       setVisibleCitations(0);
       hasAnimatedRef.current = true;
       
-      // Use a single timeout with batch updates for better performance
       const timeoutId = setTimeout(() => {
         let currentVisible = 0;
         const interval = setInterval(() => {
@@ -196,7 +193,7 @@ function MessageBubble({
           if (currentVisible >= currentLength) {
             clearInterval(interval);
           }
-        }, 75); // Slightly slower for smoother animation
+        }, 75);
         
         return () => clearInterval(interval);
       }, 50);
@@ -204,14 +201,12 @@ function MessageBubble({
       previousCitationsLengthRef.current = currentLength;
       return () => clearTimeout(timeoutId);
     } else {
-      // Citations already exist and have been animated before, just show them all
       setShouldAnimateCitations(false);
       setVisibleCitations(currentLength);
       previousCitationsLengthRef.current = currentLength;
     }
-  }, [citations?.length]); // Only depend on length, not the entire array
+  }, [citations?.length]);
 
-  // Memoize the bubble classes to prevent recalculation
   const bubbleClasses = useMemo(() => 
     `break-words p-3 rounded-xl shadow-sm border relative group ${
       isUser
@@ -220,7 +215,6 @@ function MessageBubble({
     }`, [isUser, themeClasses.userBubble, themeClasses.assistantBubble]
   );
 
-  // Memoize the container classes
   const containerClasses = useMemo(() => 
     `flex ${isUser ? "justify-end" : "justify-start"} ${isFirstMessage ? "mt-6" : ""}`,
     [isUser, isFirstMessage]
@@ -244,8 +238,58 @@ function MessageBubble({
             </div>
           )}
         </div>
+        {/* Needs More Context Buttons */}
+        {!isUser && needsMoreContext && (
+          <div className="mt-3 flex gap-2 w-full">
+            <button
+              onClick={() => onNotifyMe?.(id)}
+              disabled={notificationLoading || notificationCreated}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                notificationCreated
+                  ? 'bg-gray-400 opacity-60'
+                  : notificationLoading
+                  ? `${themeClasses.sendButton} cursor-wait opacity-80`
+                  : `${themeClasses.sendButton} hover:scale-[1.02] transform cursor-pointer`
+              }`}
+            >
+              {notificationLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  Creating...
+                </span>
+              ) : notificationCreated ? (
+                '✓ Notification Created!'
+              ) : (
+                '🔔 Notify Me'
+              )}
+            </button>
+            <button
+              onClick={() => onPostToPiazza?.(id)}
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                themeClasses.sendButton
+              } hover:scale-[1.02] transform cursor-pointer`}
+            >
+              📮 Post to Piazza
+            </button>
+          </div>
+        )}
         
-        {/* Citations with optimized rendering */}
+        {/* Citations */}
         {!isUser && (citations?.length ?? 0) > 0 && (
           <div className="mt-2 space-y-1 w-full">
             <div className={`text-xs ${themeClasses.label} mb-1 opacity-70`}>
@@ -253,7 +297,7 @@ function MessageBubble({
             </div>
             {(citations ?? []).map((citation, index) => (
               <CitationItem
-                key={`${citation.url}-${index}`} // More stable key
+                key={`${citation.url}-${index}`}
                 citation={citation}
                 index={index}
                 isVisible={index < visibleCitations}
@@ -268,18 +312,17 @@ function MessageBubble({
   );
 }
 
-// Memoize the entire component with custom comparison
 export default memo(MessageBubble, (prevProps, nextProps) => {
-  // Custom comparison for better memoization
   return (
     prevProps.id === nextProps.id &&
     prevProps.text === nextProps.text &&
     prevProps.role === nextProps.role &&
     prevProps.course === nextProps.course &&
     prevProps.isFirstMessage === nextProps.isFirstMessage &&
-    // Deep compare citations since they can change independently
+    prevProps.needsMoreContext === nextProps.needsMoreContext &&
+    prevProps.notificationCreated === nextProps.notificationCreated &&
+    prevProps.notificationLoading === nextProps.notificationLoading &&
     JSON.stringify(prevProps.citations) === JSON.stringify(nextProps.citations) &&
-    // Compare relevant theme properties only
     prevProps.themeClasses.userBubble === nextProps.themeClasses.userBubble &&
     prevProps.themeClasses.assistantBubble === nextProps.themeClasses.assistantBubble &&
     prevProps.themeClasses.inlineCode === nextProps.themeClasses.inlineCode &&
@@ -289,6 +332,7 @@ export default memo(MessageBubble, (prevProps, nextProps) => {
     prevProps.themeClasses.tableHeader === nextProps.themeClasses.tableHeader &&
     prevProps.themeClasses.tooltip === nextProps.themeClasses.tooltip &&
     prevProps.themeClasses.label === nextProps.themeClasses.label &&
-    prevProps.themeClasses.citation === nextProps.themeClasses.citation
+    prevProps.themeClasses.citation === nextProps.themeClasses.citation &&
+    prevProps.themeClasses.sendButton === nextProps.themeClasses.sendButton
   );
 });
