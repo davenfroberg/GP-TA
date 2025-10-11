@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { KeyboardEvent } from "react";
-import type { Citation, Message, ChatTab, ChatConfig } from "../../types/chat";
-import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS, AFFIRMATIVES, NEGATIVES } from "../../constants/chat";
+import type { Citation, Message, ChatTab, ChatConfig, Notification } from "../../types/chat";
+import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS} from "../../constants/chat";
 import { useTheme } from "../../hooks/useTheme";
 import TabBar from "./TabBar";
 import ChatInput from "./ChatInput";
@@ -9,6 +9,8 @@ import MessageBubble from "./MessageBubble";
 import ExamplePrompts from "./ExamplePrompts";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import PostGeneratorPopup from "./PostGeneratorPopup";
+import NotificationsModal from "./NotificationsModal";
+
 
 export default function PiazzaChat() {
   const isDark = useTheme();
@@ -29,6 +31,16 @@ export default function PiazzaChat() {
   const [editingTab, setEditingTab] = useState<{id: number, title: string} | null>(null);
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [pendingPostGeneration, setPendingPostGeneration] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>(() => {
+    const stored = localStorage.getItem('gp-ta-notifications');
+    return stored ? JSON.parse(stored) : [];
+  });
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [lastSeenCount, setLastSeenCount] = useState<number>(() => {
+  const stored = localStorage.getItem('gp-ta-last-seen-notification-count');
+  return stored ? parseInt(stored, 10) : 0;
+});
 
   // Add loading state to track which tabs are processing messages
   const [loadingTabs, setLoadingTabs] = useState<Set<number>>(new Set());
@@ -53,6 +65,11 @@ export default function PiazzaChat() {
   const isCurrentTabLoading = useMemo(() => 
     loadingTabs.has(activeTabId), 
     [loadingTabs, activeTabId]
+  );
+
+  const hasUnseenNotifications = useMemo(() => 
+    notifications.length > lastSeenCount,
+    [notifications.length, lastSeenCount]
   );
 
   // Helper functions to manage loading state
@@ -216,6 +233,7 @@ export default function PiazzaChat() {
       }
     }, 150);
   }, [isNearBottom, saveCurrentScrollPosition]);
+  
 
   // Add scroll listener to messages container
   useEffect(() => {
@@ -252,6 +270,25 @@ export default function PiazzaChat() {
     // Restore scroll position for the new active tab
     restoreScrollPosition(activeTabId);
   }, [activeTabId, restoreScrollPosition]);
+
+  // Fetch notifications only once
+  const fetchNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
+    try {
+      const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`);
+      const data = await response.json();
+      setNotifications(data);
+      localStorage.setItem('gp-ta-notifications', JSON.stringify(data));
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
   
 
   // Memoized WebSocket creation function
@@ -359,7 +396,9 @@ export default function PiazzaChat() {
           setTimeout(() => scrollToBottom(), 100);
         }
         break;
-      
+      case "prompt":
+        console.log(data);
+        break;
       case "chat_chunk":
         const currentBuffer = messageBufferRef.current.get(tabId) || "";
         const newBuffer = currentBuffer + data.message;
@@ -385,7 +424,13 @@ export default function PiazzaChat() {
     }
   }, [activeTabId, scrollToBottom, setTabLoading, setTabs]);
 
-const handleNotifyMe = useCallback(async (messageId: number) => {
+  const handleNotificationsUpdate = useCallback(() => {
+    // Reload notifications from localStorage
+    const stored = localStorage.getItem('gp-ta-notifications');
+    setNotifications(stored ? JSON.parse(stored) : []);
+  }, []);
+
+  const handleNotifyMe = useCallback(async (messageId: number) => {
     try {
       // Set loading state
       setTabs(prev =>
@@ -457,7 +502,8 @@ const handleNotifyMe = useCallback(async (messageId: number) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          user_query: userQuery
+          user_query: userQuery,
+          course_display_name: activeTab.selectedCourse
         })
       });
         
@@ -467,6 +513,21 @@ const handleNotifyMe = useCallback(async (messageId: number) => {
         
       const data = await response.json();
       console.log("Notify API response:", data);
+
+      if (response.status === 201) {
+        console.log("Adding new notification to state");
+        const notificationId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const newNotification = {
+          id: notificationId,
+          query: userQuery,
+          course_name: activeTab.selectedCourse
+        };
+        setNotifications(prev => {
+          const updated = [...prev, newNotification];
+          localStorage.setItem('gp-ta-notifications', JSON.stringify(updated));
+          return updated;
+        });
+      }
 
       // Set notification as created
       setTabs(prev =>
@@ -502,7 +563,7 @@ const handleNotifyMe = useCallback(async (messageId: number) => {
       );
       addSimpleAIResponse("Sorry, something went wrong with your notification request. Please try again.");
     }
-  }, [activeTabId, activeTab.messages, addSimpleAIResponse, setTabs]);
+  }, [activeTabId, activeTab.messages, activeTab.selectedCourse, addSimpleAIResponse, setTabs]);
 
   const handlePostToPiazza = useCallback((messageId: number) => {
     // Open the post generator popup
@@ -739,6 +800,20 @@ const handleNotifyMe = useCallback(async (messageId: number) => {
     setChatConfig(prev => ({ ...prev, [key]: value }));
   }, []);
 
+  const handleNotificationsToggle = useCallback(() => {
+    setIsNotificationsOpen(prev => {
+      if (!prev) {
+        // Opening the modal - reload from localStorage and mark as seen
+        const stored = localStorage.getItem('gp-ta-notifications');
+        const currentNotifications = stored ? JSON.parse(stored) : [];
+        setNotifications(currentNotifications);
+        setLastSeenCount(currentNotifications.length);
+        localStorage.setItem('gp-ta-last-seen-notification-count', currentNotifications.length.toString());
+      }
+      return !prev;
+    });
+  }, []);
+
   return (
     <div className={`h-screen ${themeClasses.background} flex flex-col relative`}>
       <div className="relative flex-1 flex justify-center items-stretch my-3">
@@ -758,6 +833,8 @@ const handleNotifyMe = useCallback(async (messageId: number) => {
               onTabTitleChange={(title: string) => setEditingTab(prev => prev ? { ...prev, title } : null)}
               onNewTab={createNewTab}
               themeClasses={themeClasses}
+              onNotificationsClick={handleNotificationsToggle}
+              hasUnseenNotifications={hasUnseenNotifications}
             />
           </div>
 
@@ -811,6 +888,13 @@ const handleNotifyMe = useCallback(async (messageId: number) => {
         onPostSuccess={handlePostSuccess}
         themeClasses={themeClasses}
         activeTab={activeTab}
+      />
+      <NotificationsModal
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        themeClasses={themeClasses}
+        onNotificationsUpdate={handleNotificationsUpdate}
+        loading={notificationsLoading}
       />
     </div>
   );

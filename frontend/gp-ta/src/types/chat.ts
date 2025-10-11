@@ -27,3 +27,9 @@ export interface ChatConfig {
   prioritizeInstructor: boolean;
   model: string;
 }
+
+export interface Notification {
+  id: string;
+  query: string;
+  course_name: string;
+}

@@ -1,5 +1,6 @@
 import type { ChatTab } from "../../types/chat";
 import { MAX_NUMBER_OF_TABS } from "../../constants/chat";
+import { Bell } from "lucide-react";
 
 // Tab Bar Component
 interface TabBarProps {
@@ -13,6 +14,8 @@ interface TabBarProps {
   onTabTitleCancel: () => void;
   onTabTitleChange: (title: string) => void;
   onNewTab: () => void;
+  onNotificationsClick: () => void;
+  hasUnseenNotifications: boolean;
   themeClasses: any;
 }
 
@@ -27,6 +30,8 @@ export default function TabBar({
   onTabTitleCancel,
   onTabTitleChange,
   onNewTab,
+  onNotificationsClick,
+  hasUnseenNotifications,
   themeClasses
 }: TabBarProps) {
   return (
@@ -35,7 +40,6 @@ export default function TabBar({
       <div className={`px-2 h-6 mr-2 ml-3 flex items-center justify-center ${themeClasses.logo} rounded-full text-xs font-bold text-white select-none`}>
         GP-TA
       </div>
-      
       <div className="flex items-center">
         {tabs.map((tab) => (
           <div
@@ -63,7 +67,6 @@ export default function TabBar({
             ) : (
               <span>{tab.title}</span>
             )}
-            
             {tabs.length > 1 && (
               <button
                 onClick={(e) => {
@@ -77,7 +80,6 @@ export default function TabBar({
             )}
           </div>
         ))}
-        
         {tabs.length < MAX_NUMBER_OF_TABS && (
           <button
             onClick={onNewTab}
@@ -87,6 +89,21 @@ export default function TabBar({
           </button>
         )}
       </div>
+      
+      {/* Spacer to push notifications button to the right */}
+      <div className="flex-1"></div>
+      
+      {/* Notifications Button */}
+      <button
+        onClick={onNotificationsClick}
+        className={`px-3 py-2 mr-2 relative ${themeClasses.inactiveTab.includes('text-slate-300') ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'} transition-colors cursor-pointer`}
+        title="View active notifications"
+      >
+        <Bell className="w-4 h-4" />
+        {hasUnseenNotifications && (
+          <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
+        )}
+      </button>
     </div>
   );
 }

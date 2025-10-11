@@ -2,7 +2,7 @@ import json
 from predict_intent import predict_intent # type: ignore ; b/c this is in lambda layer
 from endpoints import general_query, summarize, overview
 from utils.clients import apigw
-from utils.utils import send_websocket_message
+from utils.utils import send_websocket_message, normalize_query
 from enums.Intent import Intent
 from enums.WebSocketType import WebSocketType
 
@@ -36,14 +36,16 @@ def lambda_handler(event, context):
         
         intent = predict_intent(embedding)
         print("Intent: ", intent)
+        
+        normalized_query = normalize_query(message)
 
         match intent:
             case Intent.GENERAL.value:
-                return general_query.chat(connection_id, domain_name, stage, message, class_name, model, prioritize_instructor)
+                return general_query.chat(connection_id, domain_name, stage, normalized_query, class_name, model, prioritize_instructor)
             case Intent.SUMMARIZE.value:
-                return summarize.chat(connection_id, domain_name, stage, message, class_name, model, prioritize_instructor)
+                return summarize.chat(connection_id, domain_name, stage, normalized_query, class_name, model, prioritize_instructor)
             case Intent.OVERVIEW.value:
-                return overview.chat(connection_id, domain_name, stage, message, class_name, model, prioritize_instructor)
+                return overview.chat(connection_id, domain_name, stage, normalized_query, class_name, model, prioritize_instructor)
             case _:
                 return {
                     "statusCode": 200

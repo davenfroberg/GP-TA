@@ -275,7 +275,7 @@ function MessageBubble({
               ) : notificationCreated ? (
                 '✓ Notification Created!'
               ) : (
-                '🔔 Notify Me'
+                '🔔 Create Notification'
               )}
             </button>
             <button

@@ -1,6 +1,8 @@
 import json
+import re
 from typing import Dict
 from botocore.exceptions import ClientError
+from utils.constants import QUERY_PATTERNS
 
 def get_secret_api_key(client, secret_name: str) -> str:
     """Retrieve API key from AWS Secrets Manager."""
@@ -25,3 +27,8 @@ def send_websocket_message(apigw_management, connection_id: str, message_data: D
     except Exception as e:
         print(f"Error sending WebSocket message: {e}")
         raise
+
+def normalize_query(query: str) -> str:
+    q = re.sub(QUERY_PATTERNS["MT"], r"midterm \1", query, flags=re.I)
+    q = re.sub(QUERY_PATTERNS["PSET"], r"problem set \1", q, flags=re.I)
+    return q

@@ -81,7 +81,7 @@ export default function ChatInput({
               Prioritize instructor answers
             </label>
           </div>
-          <select
+          {/* <select
             value={chatConfig.model}
             onChange={(e) => onConfigChange('model', e.target.value)}
             className={`ml-auto ${themeClasses.select} text-xs rounded-md px-2 py-2`}
@@ -92,7 +92,7 @@ export default function ChatInput({
                 {model.label}
               </option>
             ))}
-          </select>
+          </select> */}
         </div>
         {/* Input Row */}
         <div className="flex gap-3 items-end">

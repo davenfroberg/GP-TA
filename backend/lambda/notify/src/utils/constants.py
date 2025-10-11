@@ -1,9 +1,10 @@
-SECRETS = {
-    "PINECONE": "pinecone",
-    "OPENAI": "openai"
-}
 PINECONE_INDEX_NAME = "piazza-chunks"
 AWS_REGION_NAME = "us-west-2"
+DYNAMO_TABLE_NAME = "notifications"
+
+SECRETS = {
+    "PINECONE": "pinecone"
+}
 
 CLASSES = {
     "cpsc330": "mekbcze4gyber",
@@ -13,7 +14,6 @@ CLASSES = {
     "cpsc418": "met4o2esgko2zu"
 }
 
-QUERY_PATTERNS= {
-    "MT": r"\bmt\s*([1-3])\b", # convert "mt" into "midterm"
-    "PSET": r"\bpset\s*([1-9]|1[0-2])\b" # convert "pset" into "problem set"
-}
+THRESHOLD_MULTIPLIER = 1.45
+MIN_THRESHOLD = 0.5
+MAX_THRESHOLD = 0.85
