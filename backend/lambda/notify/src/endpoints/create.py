@@ -1,6 +1,6 @@
 from typing import List, Dict
 from utils.clients import pinecone
-from utils.constants import PINECONE_INDEX_NAME, CLASSES, THRESHOLD_MULTIPLIER, MIN_THRESHOLD, MAX_THRESHOLD, DYNAMO_TABLE_NAME
+from utils.constants import PINECONE_INDEX_NAME, CLASSES, THRESHOLD_MULTIPLIER, MIN_THRESHOLD, MAX_THRESHOLD, DYNAMO_TABLE_NAME, MAX_NOTIFICATIONS
 import json
 import boto3
 from decimal import Decimal
@@ -63,6 +63,7 @@ def create_notification(event):
             "course_display_name": course_display_name,
             "course_id": course_id, # partition key
             "query": user_query, # sort key
+            "max_notifications": MAX_NOTIFICATIONS
         }
         # convert float to decimal for dynamo
         dynamo_record = json.loads(json.dumps(dynamo_record), parse_float=Decimal)

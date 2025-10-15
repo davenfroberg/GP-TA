@@ -17,3 +17,4 @@ CLASSES = {
 THRESHOLD_MULTIPLIER = 1.45
 MIN_THRESHOLD = 0.5
 MAX_THRESHOLD = 0.85
+MAX_NOTIFICATIONS = 3 # the max number of notifications to notify at once
