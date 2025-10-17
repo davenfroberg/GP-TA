@@ -1,6 +1,6 @@
 from typing import List, Dict
 from utils.clients import pinecone
-from utils.constants import PINECONE_INDEX_NAME, CLASSES, THRESHOLD_MULTIPLIER, MIN_THRESHOLD, MAX_THRESHOLD, DYNAMO_TABLE_NAME, MAX_NOTIFICATIONS
+from utils.constants import PINECONE_INDEX_NAME, CLASSES, THRESHOLD_ADDER, MIN_THRESHOLD, MAX_THRESHOLD, NOTIFICATIONS_TABLE_NAME, MAX_NOTIFICATIONS
 import json
 import boto3
 from decimal import Decimal
@@ -19,12 +19,12 @@ def get_closest_embedding_score(query: str, class_id) -> List[Dict]:
     return results['result']['hits'][0]["_score"]
 
 def compute_notification_threshold(closest_score: float) -> float:
-    threshold = closest_score * THRESHOLD_MULTIPLIER
+    threshold = closest_score + THRESHOLD_ADDER
     return max(MIN_THRESHOLD, min(threshold, MAX_THRESHOLD))
 
 def create_notification(event):
     dynamo = boto3.resource('dynamodb')
-    table = dynamo.Table(DYNAMO_TABLE_NAME)
+    table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
     try:
         body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
         

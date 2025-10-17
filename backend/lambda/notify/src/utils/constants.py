@@ -1,6 +1,7 @@
 PINECONE_INDEX_NAME = "piazza-chunks"
 AWS_REGION_NAME = "us-west-2"
-DYNAMO_TABLE_NAME = "notifications"
+NOTIFICATIONS_TABLE_NAME = "notifications"
+SENT_TABLE_NAME = "notifications-sent"
 
 SECRETS = {
     "PINECONE": "pinecone"
@@ -14,7 +15,7 @@ CLASSES = {
     "cpsc418": "met4o2esgko2zu"
 }
 
-THRESHOLD_MULTIPLIER = 1.45
-MIN_THRESHOLD = 0.5
-MAX_THRESHOLD = 0.85
+THRESHOLD_ADDER = 0.1
+MIN_THRESHOLD = 0.38
+MAX_THRESHOLD = 0.45
 MAX_NOTIFICATIONS = 3 # the max number of notifications to notify at once

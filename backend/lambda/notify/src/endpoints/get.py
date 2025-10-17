@@ -1,9 +1,9 @@
 import boto3
 import json
-from utils.constants import DYNAMO_TABLE_NAME
+from utils.constants import NOTIFICATIONS_TABLE_NAME
 def get_notifications_from_dynamo():
     dynamo = boto3.resource('dynamodb')
-    table = dynamo.Table(DYNAMO_TABLE_NAME)
+    table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
 
     items = []
     response = table.scan()
