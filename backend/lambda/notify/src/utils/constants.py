@@ -4,7 +4,7 @@ NOTIFICATIONS_TABLE_NAME = "notifications"
 SENT_TABLE_NAME = "notifications-sent"
 
 SECRETS = {
-    "PINECONE": "pinecone"
+    "PINECONE": "pinecone_key"
 }
 
 CLASSES = {

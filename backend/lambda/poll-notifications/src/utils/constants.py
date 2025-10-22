@@ -6,7 +6,7 @@ NOTIFICATIONS_DYNAMO_TABLE_NAME = "notifications"
 SENT_NOTIFICATIONS_DYNAMO_TABLE_NAME = "notifications-sent"
 
 SECRETS = {
-    "PINECONE": "pinecone"
+    "PINECONE": "pinecone_key"
 }
 
 SES_SOURCE_EMAIL = "GP-TA <noreply@davenfroberg.com>"

@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 
 class Config:
     """Configuration constants for the application."""
-    SECRET_NAME = "gmail_new"
+    SECRET_NAME = "gmail_token"
     REGION_NAME = "us-west-2"
     LABEL_NAME = "piazza-project"
     SQS_QUEUE_URL = "https://sqs.us-west-2.amazonaws.com/112745307245/PiazzaUpdateQueue"
@@ -27,17 +27,20 @@ class AWSService:
     """Handles AWS service interactions."""
     
     def __init__(self):
-        self.secrets_manager = boto3.client('secretsmanager', region_name=Config.REGION_NAME)
+        self.ssm_client = boto3.client('ssm')
         self.dynamodb = boto3.client('dynamodb')
         self.sqs = boto3.client('sqs')
     
     def get_gmail_credentials(self) -> Dict[str, str]:
-        """Fetch Gmail OAuth credentials from AWS Secrets Manager."""
+        """Fetch Gmail OAuth credentials from AWS Systems Manager Parameter Store."""
         try:
-            response = self.secrets_manager.get_secret_value(SecretId=Config.SECRET_NAME)
-            return json.loads(response['SecretString'])
+            response = self.ssm_client.get_parameter(
+                Name=Config.SECRET_NAME,
+                WithDecryption=True
+            )
+            return json.loads(response['Parameter']['Value'])
         except ClientError as e:
-            raise RuntimeError(f"Failed to retrieve credentials: {e}")
+            raise RuntimeError(f"Failed to retrieve credentials from Parameter Store: {e}")
     
     def is_message_processed(self, message_id: str) -> bool:
         """Check if a Gmail message has already been processed."""

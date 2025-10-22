@@ -20,12 +20,12 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
-secrets_client = boto3.client("secretsmanager", region_name=AWS_REGION_NAME)
+ssm_client = boto3.client('ssm')
 ses = boto3.client('ses', region_name=AWS_REGION_NAME)
 dynamo = boto3.resource('dynamodb')
 
 # Initialize Pinecone
-pc = Pinecone(api_key=get_secret_api_key(secrets_client, SECRETS["PINECONE"]))
+pc = Pinecone(api_key=get_secret_api_key(ssm_client, SECRETS["PINECONE"]))
 index = pc.Index(PINECONE_INDEX_NAME)
 
 # Initialize DynamoDB tables

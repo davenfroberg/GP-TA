@@ -1,6 +1,6 @@
 SECRETS = {
-    "PINECONE": "pinecone",
-    "OPENAI": "openai"
+    "PINECONE": "pinecone_key",
+    "OPENAI": "open_ai_key"
 }
 PINECONE_INDEX_NAME = "piazza-chunks"
 AWS_REGION_NAME = "us-west-2"

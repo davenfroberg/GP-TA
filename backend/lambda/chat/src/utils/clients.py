@@ -10,17 +10,17 @@ def dynamo():
     return boto3.resource("dynamodb")
 
 @lru_cache(maxsize=None)
-def secrets_manager():
-    return boto3.client("secretsmanager", region_name=AWS_REGION_NAME)
+def ssm_manager():
+    return boto3.client("ssm", region_name=AWS_REGION_NAME)
 
 @lru_cache(maxsize=None)
 def openai():
-    openai_api_key = get_secret_api_key(secrets_manager(), SECRETS['OPENAI'])
+    openai_api_key = get_secret_api_key(ssm_manager(), SECRETS['OPENAI'])
     return OpenAI(api_key=openai_api_key)
 
 @lru_cache(maxsize=None)
 def pinecone():
-    pinecone_api_key = get_secret_api_key(secrets_manager(), SECRETS['PINECONE'])
+    pinecone_api_key = get_secret_api_key(ssm_manager(), SECRETS['PINECONE'])
     return Pinecone(api_key=pinecone_api_key, environment="us-west1-gcp")
 
 @lru_cache(maxsize=None)

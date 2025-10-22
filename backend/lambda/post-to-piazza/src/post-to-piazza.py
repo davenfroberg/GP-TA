@@ -13,46 +13,55 @@ course_to_network = {
 }
 
 SECRETS = {
-    "PIAZZA": "piazza",
-    "API_KEY": "api_gateway"
+    "PIAZZA_USER": "piazza_username",
+    "PIAZZA_PASS": "piazza_password",
+    "API_KEY": "api_gateway_key"
 }
 
 AWS_REGION_NAME = "us-west-2"
 
 def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
-        """Get API key from AWS Secrets Manager"""
+        """Get API key from AWS Parameter Store"""
         session = boto3.session.Session()
         client = session.client(
-            service_name='secretsmanager',
+            service_name='ssm',
             region_name=region_name
         )
         try:
-            response = client.get_secret_value(SecretId='api_keys')
-            secret_dict = json.loads(response['SecretString'])
-            return secret_dict[secret_name]
+            response = client.get_parameter(
+                Name=secret_name,
+                WithDecryption=True
+            )
+            return response['Parameter']['Value']
         except ClientError as e:
-            print(f"Error retrieving secret: {e}")
-            raise
+            raise RuntimeError(f"Failed to retrieve credentials from Parameter Store: {e}")
         except Exception as e:
             print(f"Unexpected error: {e}")
             raise
 
-def get_piazza_credentials(secret_name=SECRETS['PIAZZA'], region_name=AWS_REGION_NAME):
-        """Get Piazza username and password from AWS Secrets Manager"""
+def get_piazza_credentials(username_secret=SECRETS['PIAZZA_USER'], password_secret=SECRETS['PIAZZA_PASS'], region_name=AWS_REGION_NAME):
+        """Get Piazza username and password from AWS Parameter Store"""
         session = boto3.session.Session()
         client = session.client(
-            service_name='secretsmanager',
+            service_name='ssm',
             region_name=region_name
         )
         try:
-            response = client.get_secret_value(SecretId=secret_name)
-            secret_dict = json.loads(response['SecretString'])
-            username = secret_dict['username']
-            password = secret_dict['password']
-            print("Successfully retrieved Piazza credentials from AWS secrets manager")
+            username_response = client.get_parameter(
+                Name=username_secret,
+                WithDecryption=True
+            )
+            password_response = client.get_parameter(
+                Name=password_secret,
+                WithDecryption=True
+            )
+            username = username_response['Parameter']['Value']
+            password = password_response['Parameter']['Value']
+
+            print("Successfully retrieved Piazza credentials from AWS parameter store")
             return username, password
         except ClientError as e:
-            print(f"Error retrieving secret: {e}")
+            print(f"Error retrieving parameter: {e}")
             raise
         except Exception as e:
             print(f"Unexpected error: {e}")
@@ -79,7 +88,7 @@ def lambda_handler(event, context):
         
         # Extract parameters from the request body
         api_key = body.get("api_key")
-        EXPECTED_KEY = get_secret_api_key("api_gateway")
+        EXPECTED_KEY = get_secret_api_key(SECRETS["API_KEY"])
 
         if api_key != EXPECTED_KEY:
             return {
@@ -122,13 +131,15 @@ def lambda_handler(event, context):
             }
 
         username, password = get_piazza_credentials()
-        p = Piazza()
-        p.user_login(email=username, password=password)
-        piazza_network = p.network(network)
-        post_info = piazza_network.create_post(post_type, post_folders, post_subject, post_content, anonymous=anonymous)
+        print(username)
+        print(password)
+        # p = Piazza()
+        # p.user_login(email=username, password=password)
+        # piazza_network = p.network(network)
+        # post_info = piazza_network.create_post(post_type, post_folders, post_subject, post_content, anonymous=anonymous)
 
-        post_number = post_info['nr']
-        post_link = f"https://piazza.com/class/{network}/post/{post_number}"
+        # post_number = post_info['nr']
+        # post_link = f"https://piazza.com/class/{network}/post/{post_number}"
         
         return {
             'statusCode': 200,
@@ -138,9 +149,9 @@ def lambda_handler(event, context):
             },
             'body': json.dumps({
                 'success': True,
-                'message': 'Post created successfully',
-                'post_link': post_link,
-                'post_number': post_number
+                'message': 'Post created successfully'
+                # 'post_link': post_link,
+                # 'post_number': post_number
             })
         }
         

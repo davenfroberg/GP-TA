@@ -5,7 +5,7 @@ from openai import OpenAI
 
 # Configuration Constants
 SECRETS = {
-    "OPENAI": "openai"
+    "OPENAI": "open_ai_key"
 }
 AWS_REGION_NAME = "us-west-2"
 # Initialize clients at module level for reuse across invocations
@@ -13,28 +13,29 @@ _secrets_client = None
 _openai_client = None
 
 
-def get_secrets_client():
-    """Get or create Secrets Manager client."""
+def get_ssm_client():
+    """Get or create Systems Manager Client."""
     global _secrets_client
     if _secrets_client is None:
         _secrets_client = boto3.client(
-            service_name='secretsmanager',
+            service_name='ssm',
             region_name=AWS_REGION_NAME
         )
     return _secrets_client
 
 
 def get_secret_api_key(secret_name: str) -> str:
-    """Retrieve API key from AWS Secrets Manager."""
-    client = get_secrets_client()
+    """Retrieve API key from AWS Parameter Store."""
+    client = get_ssm_client()
     
     try:
-        response = client.get_secret_value(SecretId='api_keys')
-        secret_dict = json.loads(response['SecretString'])
-        return secret_dict[secret_name]
+        response = client.get_parameter(
+            Name=secret_name,
+            WithDecryption=True
+        )
+        return response['Parameter']['Value']
     except ClientError as e:
-        print(f"Error retrieving secret: {e}")
-        raise
+        raise RuntimeError(f"Failed to retrieve credentials from Parameter Store: {e}")
     except Exception as e:
         print(f"Unexpected error: {e}")
         raise

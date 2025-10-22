@@ -1,5 +1,5 @@
 from scrapers.core.TextProcessor import TextProcessor
-from config.constants import DYNAMO_BATCH_GET_SIZE, DYNAMO_TABLE_NAME, PINECONE_BATCH_SIZE, PINECONE_NAMESPACE
+from config.constants import DYNAMO_BATCH_GET_SIZE, CHUNKS_TABLE_NAME, PINECONE_BATCH_SIZE, PINECONE_NAMESPACE
 
 class ChunkManager:
     """Manages chunk creation, deduplication, and storage"""
@@ -55,12 +55,12 @@ class ChunkManager:
         ]
 
         response = self.dynamodb.batch_get_item(
-            RequestItems={DYNAMO_TABLE_NAME: {"Keys": keys_to_check}}
+            RequestItems={CHUNKS_TABLE_NAME: {"Keys": keys_to_check}}
         )
 
         return {
             item['id']: item
-            for item in response['Responses'].get(DYNAMO_TABLE_NAME, [])
+            for item in response['Responses'].get(CHUNKS_TABLE_NAME, [])
         }
     
     def _filter_new_chunks(self, batch, existing_chunks):
