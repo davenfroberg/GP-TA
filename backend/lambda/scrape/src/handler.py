@@ -10,5 +10,5 @@ def lambda_handler(event, context):
     else:
         raise ValueError("Invalid scrape type")
     print(f"Performing scrape with type: {scrape_type}")
-    result = scraper.scrape()
+    result = scraper.scrape(event)
     return result

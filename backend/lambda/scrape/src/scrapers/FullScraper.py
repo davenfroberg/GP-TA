@@ -5,9 +5,19 @@ from scrapers.core.TextProcessor import TextProcessor
 class FullScraper(AbstractScraper):
     def __init__(self):
         super().__init__()
+    
+    def scrape(self, event):
+        try:
+            course_id = event["course_id"]
+        except Exception as e:
+            print(f"Error getting course_id from scrape message: {e}")
+            raise
+        
+        self.scrape_class(course_id)
 
-    def scrape(self, class_id):
+    def scrape_class(self, class_id):
         """Main scrape function"""
+        print(f"Starting scrape for course_id: {class_id}")
         try:
             network = self.piazza.network(class_id)
             extractor = PiazzaDataExtractor(network)
@@ -29,6 +39,8 @@ class FullScraper(AbstractScraper):
                 self.chunk_manager.process_post_chunks(post_chunks)
             
             total_chunks = self.chunk_manager.finalize()
+            print(f"Successfully upserted {total_chunks} chunks for course_id: {class_id}")
+            print(f"Ending scrape for course_id: {class_id}")
             
             return {
                 "statusCode": 200,
@@ -36,5 +48,5 @@ class FullScraper(AbstractScraper):
             }
             
         except Exception as e:
-            print(f"Error in lambda_handler: {e}")
+            print(f"Error when scraping course_id: {class_id}: {e}")
             raise
