@@ -76,7 +76,8 @@ class IncrementalScraper(AbstractScraper):
                     # this actually does the upsert to Pinecone and store to DynamoDB
                     self.chunk_manager.process_post_chunks(post_chunks)
                     
-                    self.post_manager.process_post(post)
+                    # handle the raw post logic (for summarization)
+                    self.post_manager.process_post(post, course_id)
                     
                     # Delete SQS message after successful processing of the post
                     self.sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=sqs_msg['ReceiptHandle'])
