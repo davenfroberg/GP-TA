@@ -59,11 +59,29 @@ class NotificationService:
             return False
     
     def _sanitize_html_content(self, content: str) -> str:
-        """Remove images and other problematic content from HTML"""
+        """Convert Piazza redirect image URLs to direct CDN URLs"""
+        # Decode HTML entities first
         content = html.unescape(content)
         
-        content = re.sub(r'<img[^>]*>', '<span style="color: #666; font-style: italic;">[Image - view on Piazza]</span>', content, flags=re.IGNORECASE)
+        # Convert Piazza redirect URLs to direct CDN URLs
+        def replace_image_src(match):
+            img_tag = match.group(0)
+            # Extract the prefix parameter from redirect URL
+            prefix_match = re.search(r'prefix=([^&"\'>\s]+)', img_tag)
+            if prefix_match:
+                # URL decode the prefix (handles %2F -> /)
+                from urllib.parse import unquote
+                prefix = unquote(prefix_match.group(1))
+                # Replace with direct CDN URL
+                cdn_url = f"https://cdn-uploads.piazza.com/{prefix}"
+                # Replace the src attribute
+                img_tag = re.sub(r'src=["\'][^"\']*["\']', f'src="{cdn_url}"', img_tag)
+            return img_tag
         
+        # Process all img tags
+        content = re.sub(r'<img[^>]*>', replace_image_src, content, flags=re.IGNORECASE)
+        
+        # Still handle iframes as they likely need auth
         content = re.sub(r'<iframe[^>]*>.*?</iframe>', '<span style="color: #666; font-style: italic;">[Embedded content - view on Piazza]</span>', content, flags=re.IGNORECASE | re.DOTALL)
         
         return content
@@ -86,15 +104,15 @@ class NotificationService:
         if len(plain_content) > max_length:
             plain_content = plain_content[:max_length].rsplit(' ', 1)[0] + "..."
         
-        has_images = self._has_images(announcement.post_content)
-        image_notice = "\n\n[This announcement contains images. View on Piazza to see all media.]\n" if has_images else ""
+        # has_images = self._has_images(announcement.post_content)
+        # image_notice = "\n\n[This announcement contains images. View on Piazza to see all media.]\n" if has_images else ""
         
         return (
             f"Hello,\n\n"
             f"A new course announcement has been posted in {announcement.course_name}.\n\n"
             f"Subject: {html.unescape(announcement.post_subject)}\n\n"
             f"{plain_content}\n"
-            f"{image_notice}\n"
+            # f"{image_notice}\n"
             f"View the full announcement here: {post_url}\n\n"
             f"Happy learning!\n"
             f"- The GP-TA Team"
@@ -107,16 +125,16 @@ class NotificationService:
         decoded_subject = html.unescape(announcement.post_subject)
         decoded_content = self._sanitize_html_content(announcement.post_content)
         
-        has_images = self._has_images(announcement.post_content)
+        # has_images = self._has_images(announcement.post_content)
         
         image_notice = ""
-        if has_images:
-            image_notice = f"""
-            <div class="content-notice">
-                This announcement contains images. 
-                <a href="{post_url}">View on Piazza</a> to see all media.
-            </div>
-            """
+        # if has_images:
+        #     image_notice = f"""
+        #     <div class="content-notice">
+        #         This announcement contains images. 
+        #         <a href="{post_url}">View on Piazza</a> to see all media.
+        #     </div>
+        #     """
         
         return f"""
                 <html>
