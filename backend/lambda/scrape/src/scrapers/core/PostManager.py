@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from config.constants import MAJOR_UPDATE_TYPES, QUESTION_UPDATE_TYPES, I_ANSWER_UPDATE_TYPES, S_ANSWER_UPDATE_TYPES, DISCUSSION_TYPES, SES_RECIPIENT_EMAIL, COURSE_NAMES
 from enums.UpdateType import UpdateType
@@ -163,6 +163,26 @@ class PostManager:
         
         self.set_update_times(new_post, course_id, had_major_update)
 
+    def _should_notify(self, post):        
+        is_announcement = bool(post.get('config', {}).get('is_announcement', 0))
+        post_creation_time = post.get('created')
+        if is_announcement == False:
+            print("Not an announcement post")
+        
+        if not is_announcement or not post_creation_time:
+            return False
+        
+        post_datetime = datetime.fromisoformat(post_creation_time.replace('Z', '+00:00'))
+        
+        now = datetime.now(timezone.utc)
+        
+        time_difference = now - post_datetime
+        within_48_hours = time_difference <= timedelta(hours=48)
+        
+        if within_48_hours == False:
+            print("It is an announcement post but not within 48 hours")
+            
+        return is_announcement and within_48_hours
         
     def handle_new_post(self, post, course_id):
         post_id = post.get('id')
@@ -187,7 +207,7 @@ class PostManager:
         # `old_num_changes` is set to 0 for brand new posts
         self.put_new_diffs(post, course_id, 0)
 
-        if is_announcement:
+        if self._should_notify(post):
             notification_config = NotificationConfig(
                 recipient_email=SES_RECIPIENT_EMAIL
             )
