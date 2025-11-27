@@ -1,4 +1,4 @@
-# GP-TA  
+# GP-TA (in progress)
 *A real-time, retrieval-augmented teaching assistant for UBC's Piazza course forum.*
 
 GP-TA is a RAG platform built to help UBC students get fast, contextually accurate answers based on their course’s Piazza posts. It retrieves relevant discussions, reasons over them, and streams a structured answer back to the client. When the system doesn't have enough context, it can optionally generate a draft Piazza post to help students ask better questions, or create a notification which sends an email whenever relevant posts are created.
