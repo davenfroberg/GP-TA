@@ -1,5 +1,7 @@
 import boto3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from botocore.exceptions import ClientError
 from utils.constants import CLASSES, POSTS_TABLE_NAME
 from utils.utils import send_websocket_message
 from utils.clients import openai, apigw
@@ -45,9 +47,11 @@ def create_system_prompt() -> str:
 
 
 def get_recent_summaries(class_id: str, days: int = 2) -> list[dict]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    la_tz = ZoneInfo("America/Los_Angeles")
+    cutoff = (datetime.now(la_tz) - timedelta(days=days)).isoformat()
     
     try:
+        # query for posts with summaries updated after the calculated cutoff
         response = posts_table.query(
             IndexName='course_id-summary_last_updated-index',
             KeyConditionExpression='course_id = :cid AND summary_last_updated > :cutoff',
@@ -58,6 +62,8 @@ def get_recent_summaries(class_id: str, days: int = 2) -> list[dict]:
         )
         
         summaries = []
+        posts_to_update = []
+        
         for post in response['Items']:
             if post.get('current_summary'):
                 summaries.append({
@@ -65,9 +71,29 @@ def get_recent_summaries(class_id: str, days: int = 2) -> list[dict]:
                     'summary': post['current_summary'],
                     'updated': post.get('summary_last_updated', '')
                 })
+                
+                # if the user is seeing this summary, mark it as "read"
+                # this triggers the summarizer job to switch to "Fresh Updates Only" mode next time
+                if not post.get('needs_new_summary'):
+                    posts_to_update.append({
+                        'course_id': post['course_id'],
+                        'post_id': post['post_id']
+                    })
         
+        for key in posts_to_update:
+            try:
+                posts_table.update_item(
+                    Key={
+                        'course_id': key['course_id'], 
+                        'post_id': key['post_id']
+                    },
+                    UpdateExpression="SET needs_new_summary = :val",
+                    ExpressionAttributeValues={':val': True}
+                )
+            except ClientError as e:
+                print(f"[WARN] Failed to update read flag for {key['post_id']}: {e}")
+
         summaries.sort(key=lambda x: x['updated'], reverse=True)
-        
         return summaries
         
     except Exception as e:

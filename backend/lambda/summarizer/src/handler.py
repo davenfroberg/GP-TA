@@ -29,7 +29,6 @@ def lambda_handler(event, context):
                             Attr('last_major_update').gt(Attr('summary_last_updated')),
             ExclusiveStartKey=response['LastEvaluatedKey']
         )
-        response = posts_table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
         items_to_process.extend(response['Items'])
 
     print(f"Found {len(items_to_process)} posts to summarize.")
@@ -54,26 +53,25 @@ def lambda_handler(event, context):
 
     return {'statusCode': 200, 'body': f'Processed {len(items_to_process)} posts. Results: {len(results)} completed.'}
 
+
 def summarize_post(post):
     pk = f"{post['course_id']}#{post['post_id']}"
     
-    current_time = datetime.now(ZoneInfo("America/Los_Angeles"))
+    la_tz = ZoneInfo("America/Los_Angeles")
+    current_time = datetime.now(la_tz)
     
-    last_summary_time = post.get('summary_last_updated')
+    last_summarized_raw = post.get('summary_last_updated')
     
-    if last_summary_time is None:
-        last_summary_time = '1970-01-01T00:00:00Z'
-    
+    if last_summarized_raw:
+        query_time_limit = last_summarized_raw
+    else:
+        query_time_limit = '1970-01-01T00:00:00Z'
+
+    # get all diffs that have happened since the last time it was summarized
     diffs_response = diffs_table.query(
         KeyConditionExpression='#pk = :pk AND #ts > :last',
-        ExpressionAttributeNames={
-            '#pk': 'course_id#post_id',
-            '#ts': 'timestamp'
-        },
-        ExpressionAttributeValues={
-            ':pk': pk,
-            ':last': last_summary_time
-        }
+        ExpressionAttributeNames={'#pk': 'course_id#post_id', '#ts': 'timestamp'},
+        ExpressionAttributeValues={':pk': pk, ':last': query_time_limit}
     )
     
     if not diffs_response['Items']:
@@ -81,30 +79,36 @@ def summarize_post(post):
 
     events_text = format_diffs(diffs_response['Items'])
     post_title = post.get('post_title', 'Untitled')
-    
-    if post.get('needs_new_summary', False):
-        # fresh summary (ignore previous history)
+    current_summary = post.get('current_summary', 'No summary available.')
+
+    is_fresh_start = needs_fresh_summary(post, current_time)
+
+    if is_fresh_start:
+        print(f"{post['post_id']} is getting a fresh start!")
         prompt_content = (
+            f"Summary type: New Updates Report\n"
             f"Post Title: {post_title}\n"
-            f"Content & Updates:\n{events_text}\n\n"
-            "Task: Create a concise summary of this post."
+            f"Context (Previously established facts): {current_summary}\n"
+            f"--- END CONTEXT ---\n\n"
+            f"Recent Updates (The only thing to summarize):\n{events_text}\n\n"
+            "Task: Summarize ONLY the 'Recent Updates'. "
+            "Use the 'Context' to understand what the updates are referring to, but DO NOT repeat the context in your output. "
+            "If the updates are just replies, state who (student vs instructor) replied and the resolution."
         )
     else:
-        # incremental update (merge history with current update)
-        current = post.get('current_summary', 'No summary available.')
         prompt_content = (
-            f"Current Summary: {current}\n\n"
-            f"New Updates to Post:\n{events_text}\n\n"
-            "Task: Update the Current Summary to reflect the New Updates. "
+            f"Summary type: Running Log Update\n"
+            f"Post Title: {post_title}\n"
+            f"Current Running Summary: {current_summary}\n\n"
+            f"New Updates to append/merge:\n{events_text}\n\n"
+            "Task: Update the 'Current Running Summary' to include the 'New Updates'. "
+            "Keep the history intact but condense slightly if it gets too long."
         )
 
     summary = call_openai(prompt_content)
 
     posts_table.update_item(
-        Key={
-            'course_id': post['course_id'],
-            'post_id': post['post_id']
-        },
+        Key={'course_id': post['course_id'], 'post_id': post['post_id']},
         UpdateExpression='SET current_summary = :s, summary_last_updated = :t, needs_new_summary = :f',
         ExpressionAttributeValues={
             ':s': summary,
@@ -113,6 +117,27 @@ def summarize_post(post):
         }
     )
     print(f"[SUCCESS] Summarized {pk}")
+
+def needs_fresh_summary(post, current_time):
+    needs_new = post.get('needs_new_summary', False)
+    last_summarized_str = post.get('summary_last_updated')
+    summarization_range = 2 # days
+    
+    # if never summarized, we can't have a fresh start because there's no start to begin with
+    if last_summarized_str is None:
+        return False
+
+    try:
+        last_summarized_dt = datetime.fromisoformat(last_summarized_str)
+        if last_summarized_dt.tzinfo is None:
+            last_summarized_dt = last_summarized_dt.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+            
+        days_since_summary = (current_time - last_summarized_dt).days
+        outside_of_range = days_since_summary > summarization_range
+    except ValueError:
+        return True
+
+    return (needs_new or outside_of_range)
 
 def format_diffs(diffs):
     formatted = []
@@ -139,7 +164,9 @@ def call_openai(prompt_input):
         "1. ATTRIBUTED BREVITY: Always identify the source of key info (e.g., 'Instructor confirmed...', 'Student reported issue with...').\n"
         "2. IF RESOLVED: State the solution clearly (e.g., 'Instructor clarified that only one screenshot is required').\n"
         "3. IF UNRESOLVED: Summarize the core question (e.g., 'Student asked for clarification on the deadline; no response yet.').\n"
-        "4. FORMATTING: Max 2 sentences. No bullet points."
+        "4. FRESH SUMMARIES (CONTEXT USE): When provided with a 'Previous Summary' as context, do not repeat it. "
+        "Summarize ONLY the 'New Updates', but use the context to anchor the topic (e.g., 'Instructor provided the missing screenshot,' rather than just 'Instructor posted an image').\n"
+        "5. FORMATTING: Max 2 sentences. No bullet points."
     )
 
     response = open_ai_client.responses.create(

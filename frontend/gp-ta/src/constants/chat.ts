@@ -9,9 +9,11 @@ export const MODELS = [
 ];
 export const EXAMPLE_PROMPTS = [
   "when is homework 1 due?",
+  "summarize the past two days",
   "how do I do question 5 on homework 2?",
   "what topics will be on the midterm?",
   "I missed an iClicker, is this okay?",
+  "catch me up please",
   "where are office hours held?",
   "how do I register for quiz 3?",
   "is lecture cancelled today?",
