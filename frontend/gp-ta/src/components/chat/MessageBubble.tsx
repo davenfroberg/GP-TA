@@ -239,7 +239,7 @@ function MessageBubble({
           )}
         </div>
         {/* Needs More Context Buttons */}
-        {!isUser && (
+        {!isUser && needsMoreContext && (
           <div className="mt-3 flex gap-2 w-full">
             <button
               onClick={() => onNotifyMe?.(id)}
@@ -278,7 +278,6 @@ function MessageBubble({
                 '🔔 Create Notification'
               )}
             </button>
-            {!isUser && needsMoreContext && (
             <button
               onClick={() => onPostToPiazza?.(id)}
               className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -287,7 +286,6 @@ function MessageBubble({
             >
               📮 Post to Piazza
             </button>
-            )}
           </div>
         )}
         
