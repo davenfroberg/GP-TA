@@ -23,6 +23,7 @@ GP-TA can summarize recent Piazza discussions so students can quickly understand
 - Piazza posts are embedded with OpenAI models and stored in a Pinecone vector database, allowing for easy semantic vector search.
 - A Lambda-based RAG pipeline retrieves context and streams OpenAI LLM responses to the frontend in real time.
 - Event-driven ingestion using a the Gmail API as a makeshift webhook reduces overall Piazza scrape time, only scraping new posts.
+- Predicts user intent using lightweight logistic regression trained on example user queries.
 - Clean and easy to use React.js frontend.
 
 
