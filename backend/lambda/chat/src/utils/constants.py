@@ -5,6 +5,8 @@ SECRETS = {
 PINECONE_INDEX_NAME = "piazza-chunks"
 AWS_REGION_NAME = "us-west-2"
 
+POSTS_TABLE_NAME = "piazza-posts"
+
 CLASSES = {
     "cpsc330": "mekbcze4gyber",
     "cpsc110": "mdi1cvod8vu5hf",
