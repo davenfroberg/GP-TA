@@ -19,11 +19,12 @@ GP-TA can summarize recent Piazza discussions so students can quickly understand
 
 
 ## Design
-- Built on a fully serverless AWS stack using Lambda, API Gateway, S3, and DynamoDB.
+- Built on a fully serverless AWS stack using Lambda, API Gateway, DynamoDB, Step Functions, SQS, and SES.
 - Piazza posts are embedded with OpenAI models and stored in a Pinecone vector database, allowing for easy semantic vector search.
 - A Lambda-based RAG pipeline retrieves context and streams OpenAI LLM responses to the frontend in real time.
-- Event-driven ingestion using a the Gmail API as a makeshift webhook reduces overall Piazza scrape time, only scraping new posts.
+- Event-driven ingestion using the Gmail API as a makeshift webhook reduces overall Piazza scrape time, only scraping new posts.
 - Predicts user intent using lightweight logistic regression trained on example user queries.
+- Sends emails for course announcements and user-subscribed topics using AWS Simple Email Service (SES).
 - Clean and easy to use React.js frontend.
 
 
