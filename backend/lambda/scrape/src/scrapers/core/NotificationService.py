@@ -1,14 +1,12 @@
-from dto.NotificationConfig import NotificationConfig
-from dto.AnnouncementPostConfig import AnnouncementPostConfig
-from config.constants import SES_SOURCE_EMAIL, AWS_REGION_NAME
 import boto3
-import logging
 import html
 import re
 from html.parser import HTMLParser
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+from config.constants import SES_SOURCE_EMAIL, AWS_REGION_NAME
+from config.logger import logger
+from dto.AnnouncementPostConfig import AnnouncementPostConfig
+from dto.NotificationConfig import NotificationConfig
 
 
 class HTMLTextExtractor(HTMLParser):
@@ -51,11 +49,27 @@ class NotificationService:
                     }
                 }
             )
-            logger.info(f"Email sent successfully to {config.recipient_email} for post_id={announcement.post_id}")
+            logger.info(
+                "Sent announcement email",
+                extra={
+                    "recipient": config.recipient_email,
+                    "course_id": announcement.course_id,
+                    "post_id": announcement.post_id,
+                    "post_number": announcement.post_number,
+                },
+            )
             return True
             
-        except Exception as e:
-            logger.error(f"Failed to send email to {config.recipient_email} for post_id={announcement.post_id}: {str(e)}")
+        except Exception:
+            logger.exception(
+                "Failed to send announcement email",
+                extra={
+                    "recipient": config.recipient_email,
+                    "course_id": announcement.course_id,
+                    "post_id": announcement.post_id,
+                    "post_number": announcement.post_number,
+                },
+            )
             return False
     
     def _sanitize_html_content(self, content: str) -> str:
@@ -104,15 +118,12 @@ class NotificationService:
         if len(plain_content) > max_length:
             plain_content = plain_content[:max_length].rsplit(' ', 1)[0] + "..."
         
-        # has_images = self._has_images(announcement.post_content)
-        # image_notice = "\n\n[This announcement contains images. View on Piazza to see all media.]\n" if has_images else ""
         
         return (
             f"Hello,\n\n"
             f"A new course announcement has been posted in {announcement.course_name}.\n\n"
             f"Subject: {html.unescape(announcement.post_subject)}\n\n"
             f"{plain_content}\n"
-            # f"{image_notice}\n"
             f"View the full announcement here: {post_url}\n\n"
             f"Happy learning!\n"
             f"- The GP-TA Team"
@@ -124,17 +135,6 @@ class NotificationService:
         
         decoded_subject = html.unescape(announcement.post_subject)
         decoded_content = self._sanitize_html_content(announcement.post_content)
-        
-        # has_images = self._has_images(announcement.post_content)
-        
-        image_notice = ""
-        # if has_images:
-        #     image_notice = f"""
-        #     <div class="content-notice">
-        #         This announcement contains images. 
-        #         <a href="{post_url}">View on Piazza</a> to see all media.
-        #     </div>
-        #     """
         
         return f"""
                 <html>
@@ -192,8 +192,6 @@ class NotificationService:
                         <h3 style="margin-top: 0;">{html.escape(decoded_subject)}</h3>
                         {decoded_content}
                     </div>
-                    
-                    {image_notice}
                     
                     <a href="{post_url}" class="cta-button">View Full Announcement on Piazza</a>
                     

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from config.constants import MAJOR_UPDATE_TYPES, QUESTION_UPDATE_TYPES, I_ANSWER_UPDATE_TYPES, S_ANSWER_UPDATE_TYPES, DISCUSSION_TYPES, SES_RECIPIENT_EMAIL, COURSE_NAMES
+from config.logger import logger
 from enums.UpdateType import UpdateType
 from dto.NotificationConfig import NotificationConfig
 from dto.AnnouncementPostConfig import AnnouncementPostConfig
@@ -17,7 +18,7 @@ class PostManager:
 
     def get_discussion_content(self, post, change_id):
         # I can recurse through the entire tree structure which isn't super quick but there aren't gonna be enough discussions for it to really matter efficiency-wise
-        print(f"Looking for discussion with change_id: {change_id}")
+        logger.debug("Searching discussion tree", extra={"change_id": change_id})
         def dfs(root):
             children = root.get('children', [])
             for child in children:
@@ -25,8 +26,6 @@ class PostManager:
                     continue
                 if child.get('id') == change_id:
                     # for some reason, discussion content is in the subject field
-                    print(f"Found {child.get('id')}!")
-                    print(f"Subject: {child.get("subject")}")
                     return child.get("subject")
                 search_result = dfs(child)
                 if search_result is not False:
@@ -38,7 +37,7 @@ class PostManager:
         if res is not False:
             return res
         else:
-            print(f"FAILED TO FIND DISCUSSION WITH CHANGE_ID: {change_id}")
+            logger.warning("Failed to find discussion", extra={"change_id": change_id})
             return ""
 
 
@@ -49,7 +48,6 @@ class PostManager:
         
         if change_type in QUESTION_UPDATE_TYPES:
             history_object = post.get("history")[0]
-            print("Getting create/update content")
 
             post_subject = history_object.get("subject")
             post_content = history_object.get("content") # this is uncleaned HTML and MD
@@ -57,7 +55,6 @@ class PostManager:
         elif change_type in I_ANSWER_UPDATE_TYPES:
             for child in post.get("children", []):
                 if child.get("type") == UpdateType.INSTRUCTOR_ANSWER.value:
-                    print("Getting i_answer content")
                     history_object = child.get("history")[0]
 
                     post_content = history_object.get("content") # this is uncleaned HTML and MD
@@ -66,7 +63,6 @@ class PostManager:
         elif change_type in S_ANSWER_UPDATE_TYPES:
             for child in post.get("children", []):
                 if child.get("type") == UpdateType.STUDENT_ANSWER.value:
-                    print("Getting s_answer content")
                     history_object = child.get("history")[0]
 
                     post_content = history_object.get("content") # this is uncleaned HTML and MD
@@ -122,7 +118,10 @@ class PostManager:
             )
         except Exception as e:
             action = "last_major_update and last_updated" if had_major_update else "last_updated"
-            print(f"[ERROR] Failed to update {action} for {course_id}#{post_id}: {e}")
+            logger.exception(
+                "Failed to update post timestamps",
+                extra={"course_id": course_id, "post_id": post_id, "had_major_update": had_major_update},
+            )
 
 
     def put_new_diffs(self, new_post, course_id, old_num_changes):
@@ -166,8 +165,6 @@ class PostManager:
     def _should_notify(self, post):        
         is_announcement = bool(post.get('config', {}).get('is_announcement', 0))
         post_creation_time = post.get('created')
-        if is_announcement == False:
-            print("Not an announcement post")
         
         if not is_announcement or not post_creation_time:
             return False
@@ -178,9 +175,6 @@ class PostManager:
         
         time_difference = now - post_datetime
         within_48_hours = time_difference <= timedelta(hours=48)
-        
-        if within_48_hours == False:
-            print("It is an announcement post but not within 48 hours")
             
         return is_announcement and within_48_hours
         
@@ -254,9 +248,9 @@ class PostManager:
                 }
             )
             existing_post = response.get('Item')
-        except Exception as e:
-            print(f"[ERROR] Failed to fetch post course_id: {course_id}, post_id: {post_id} -- {e}")
-            existing_post = None
+        except Exception:
+            logger.exception("Failed to fetch post from DynamoDB", extra={"course_id": course_id, "post_id": post_id})
+            raise
         
         if existing_post:
             self.handle_existing_post(existing_post, new_post, course_id)

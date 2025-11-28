@@ -1,6 +1,8 @@
 import boto3
 from botocore.exceptions import ClientError
+
 from config.constants import AWS_REGION_NAME, SECRETS
+from config.logger import logger
 
 class AWSParameterStore:
     """Handles AWS Parameter Store operations"""
@@ -20,9 +22,10 @@ class AWSParameterStore:
             )
             return response['Parameter']['Value']
         except ClientError as e:
+            logger.exception("Failed to retrieve secret", extra={"secret_name": secret_name})
             raise RuntimeError(f"Failed to retrieve credentials from Parameter Store: {e}")
-        except Exception as e:
-            print(f"Unexpected error: {e}")
+        except Exception:
+            logger.exception("Unexpected error retrieving secret", extra={"secret_name": secret_name})
             raise
 
     def get_piazza_credentials(self, username_secret=SECRETS['PIAZZA_USER'], password_secret=SECRETS['PIAZZA_PASS']):
@@ -39,11 +42,11 @@ class AWSParameterStore:
             username = username_response['Parameter']['Value']
             password = password_response['Parameter']['Value']
 
-            print("Successfully retrieved Piazza credentials from AWS parameter store")
+            logger.info("Retrieved Piazza credentials from Parameter Store")
             return username, password
         except ClientError as e:
-            print(f"Error retrieving parameter: {e}")
+            logger.exception("Failed to retrieve Piazza credentials from Parameter Store")
             raise
-        except Exception as e:
-            print(f"Unexpected error: {e}")
+        except Exception:
+            logger.exception("Unexpected error retrieving Piazza credentials")
             raise

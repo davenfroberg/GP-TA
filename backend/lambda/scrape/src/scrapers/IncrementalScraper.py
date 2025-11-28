@@ -1,8 +1,13 @@
-from scrapers.AbstractScraper import AbstractScraper
 from typing import List, Dict, Tuple
 import json
-from config.constants import AWS_REGION_NAME
 import boto3
+
+from aws_lambda_powertools.metrics import MetricUnit
+
+from config.constants import AWS_REGION_NAME
+from config.logger import logger
+from config.metrics import metrics
+from scrapers.AbstractScraper import AbstractScraper
 from scrapers.core.PiazzaDataExtractor import PiazzaDataExtractor
 from scrapers.core.TextProcessor import TextProcessor
 
@@ -27,7 +32,6 @@ class IncrementalScraper(AbstractScraper):
             grouped.setdefault(course_id, []).append(post_id)
             postid_to_msg[post_id] = msg
         
-        print(f"Grouped posts by course: {dict((k, len(v)) for k, v in grouped.items())}")
         return grouped, postid_to_msg
 
     def process_sqs_messages(self) -> List[Dict]:
@@ -47,17 +51,24 @@ class IncrementalScraper(AbstractScraper):
             
             all_messages.extend(messages)
         
-        print(f"Fetched {len(all_messages)} messages from SQS queue.")
+        logger.info("Fetched SQS messages", extra={"message_count": len(all_messages)})
         return all_messages
 
     def scrape(self, event):
         """Main scrape function"""
         # get pending messages from SQS and group them by their course
         messages = self.process_sqs_messages()
+        metrics.add_metric(name="ScrapeSqsMessages", unit=MetricUnit.Count, value=len(messages))
         grouped, postid_to_msg = self.group_messages_by_course(messages)
         
         # Process each course at a time
+        processed_posts = 0
+        failed_posts = 0
         for course_id, post_ids in grouped.items():
+            logger.info(
+                "Processing incremental updates for course",
+                extra={"course_id": course_id, "post_count": len(post_ids)},
+            )
             network = self.piazza.network(course_id)
             extractor = PiazzaDataExtractor(network)
             for post_id in post_ids:
@@ -81,12 +92,21 @@ class IncrementalScraper(AbstractScraper):
                     
                     # Delete SQS message after successful processing of the post
                     self.sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=sqs_msg['ReceiptHandle'])
-                    print(f"Deleted SQS message for post_id {post_id}")
+                    logger.debug("Deleted SQS message", extra={"post_id": post_id})
+                    processed_posts += 1
                     
-                except Exception as e:
-                    print(f"Error processing post_id {post_id}: {e}")
+                except Exception:
+                    failed_posts += 1
+                    logger.exception("Failed processing post", extra={"post_id": post_id, "course_id": course_id})
     
         total_chunks = self.chunk_manager.finalize()
+        logger.info(
+            "Incremental scrape complete",
+            extra={"chunks_upserted": total_chunks},
+        )
+        metrics.add_metric(name="ScrapePostsProcessed", unit=MetricUnit.Count, value=processed_posts)
+        metrics.add_metric(name="ScrapePostFailures", unit=MetricUnit.Count, value=failed_posts)
+        metrics.add_metric(name="ScrapeChunksUpserted", unit=MetricUnit.Count, value=total_chunks)
 
         return {
             "statusCode": 200,

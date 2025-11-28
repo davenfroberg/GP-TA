@@ -1,9 +1,14 @@
 import concurrent.futures
-from utils.constants import POSTS_TABLE_NAME, DIFFS_TABLE_NAME
-from utils.clients import openai, dynamo
 from boto3.dynamodb.conditions import Attr
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+from utils.constants import POSTS_TABLE_NAME, DIFFS_TABLE_NAME
+from utils.clients import openai, dynamo
+from aws_lambda_powertools.metrics import MetricUnit
+
+from utils.logger import logger
+from utils.metrics import metrics
 
 dynamodb = dynamo()
 posts_table = dynamodb.Table(POSTS_TABLE_NAME)
@@ -11,17 +16,20 @@ diffs_table = dynamodb.Table(DIFFS_TABLE_NAME)
 open_ai_client = openai()
 
 # how many posts we process at the exact same time.
-MAX_WORKERS = 10 
+MAX_WORKERS = 10
 
+
+@logger.inject_lambda_context(log_event=True)
+@metrics.log_metrics(capture_cold_start_metric=False)
 def lambda_handler(event, context):
     items_to_process = []
-    
+
     response = posts_table.scan(
         FilterExpression=Attr('last_major_update').gt(Attr('summary_last_updated'))
     )
 
     items_to_process.extend(response['Items'])
-    
+
     while 'LastEvaluatedKey' in response:
         response = posts_table.scan(
             FilterExpression=Attr('last_major_update').gt(Attr('summary_last_updated')),
@@ -29,37 +37,53 @@ def lambda_handler(event, context):
         )
         items_to_process.extend(response['Items'])
 
-    print(f"Found {len(items_to_process)} posts to summarize.")
+    total_posts = len(items_to_process)
+    logger.info("Found posts requiring summarization", extra={"post_count": total_posts})
+
+    metrics.add_metric(name="SummarizerRuns", unit=MetricUnit.Count, value=1)
 
     if not items_to_process:
         return {'statusCode': 200, 'body': 'No posts to update.'}
 
     # dispatch tasks to a thread pool
-    results = []
+    processed = 0
+    failed = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_post = {executor.submit(summarize_post, post): post for post in items_to_process}
-        
+
         # process results as they complete
         for future in concurrent.futures.as_completed(future_to_post):
             post = future_to_post[future]
             try:
                 future.result()
-                results.append(f"Success: {post.get('post_id')}")
-            except Exception as e:
-                print(f"[ERROR] Thread failed for {post.get('course_id')}#{post.get('post_id')}: {e}")
-                results.append(f"Failed: {post.get('post_id')}")
+                processed += 1
+            except Exception:
+                failed += 1
+                metrics.add_metric(name="SummarizerFailures", unit=MetricUnit.Count, value=1)
+                logger.exception(
+                    "Summarization thread failed",
+                    extra={"course_id": post.get('course_id'), "post_id": post.get('post_id')},
+                )
 
-    return {'statusCode': 200, 'body': f'Processed {len(items_to_process)} posts. Results: {len(results)} completed.'}
+    metrics.add_metric(name="SummarizerPostsProcessed", unit=MetricUnit.Count, value=processed)
+    logger.info(
+        "Summarization run completed",
+        extra={"total_posts": total_posts, "processed_posts": processed, "failed_posts": failed},
+    )
+    return {
+        'statusCode': 200,
+        'body': f'Processed {total_posts} posts. Success: {processed}. Failed: {failed}.'
+    }
 
 
 def summarize_post(post):
     pk = f"{post['course_id']}#{post['post_id']}"
-    
+
     la_tz = ZoneInfo("America/Los_Angeles")
     current_time = datetime.now(la_tz)
-    
+
     last_summarized_raw = post.get('summary_last_updated')
-    
+
     if last_summarized_raw:
         query_time_limit = last_summarized_raw
     else:
@@ -71,8 +95,9 @@ def summarize_post(post):
         ExpressionAttributeNames={'#pk': 'course_id#post_id', '#ts': 'timestamp'},
         ExpressionAttributeValues={':pk': pk, ':last': query_time_limit}
     )
-    
+
     if not diffs_response['Items']:
+        logger.debug("No new diffs to summarize", extra={"post_key": pk})
         return
 
     events_text = format_diffs(diffs_response['Items'])
@@ -82,7 +107,7 @@ def summarize_post(post):
     is_fresh_start = needs_fresh_summary(post, current_time)
 
     if is_fresh_start:
-        print(f"{post['post_id']} is getting a fresh start!")
+        logger.info("Generating fresh summary", extra={"post_key": pk})
         prompt_content = (
             f"Summary type: New Updates Report\n"
             f"Post Title: {post_title}\n"
@@ -114,7 +139,7 @@ def summarize_post(post):
             ':f': False
         }
     )
-    print(f"[SUCCESS] Summarized {pk}")
+    logger.info("Updated summary", extra={"post_key": pk})
 
 def needs_fresh_summary(post, current_time):
     needs_new = post.get('needs_new_summary', False)

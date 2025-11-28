@@ -1,5 +1,6 @@
-from scrapers.core.TextProcessor import TextProcessor
 from config.constants import DYNAMO_BATCH_GET_SIZE, CHUNKS_TABLE_NAME, PINECONE_BATCH_SIZE, PINECONE_NAMESPACE
+from config.logger import logger
+from scrapers.core.TextProcessor import TextProcessor
 
 class ChunkManager:
     """Manages chunk creation, deduplication, and storage"""
@@ -70,7 +71,7 @@ class ChunkManager:
         for chunk in batch:
             existing = existing_chunks.get(chunk['id'])
             if existing and existing.get('content_hash') == chunk['content_hash']:
-                print(f"Skipped duplicate chunk {chunk['id']}")
+                logger.debug("Skipped duplicate chunk", extra={"chunk_id": chunk['id']})
                 continue
             
             chunks_to_insert.append(chunk)
@@ -88,7 +89,7 @@ class ChunkManager:
         with self.chunk_dynamo_table.batch_writer() as batch_writer:
             for chunk in chunks_to_insert:
                 batch_writer.put_item(Item=chunk)
-                print(f"Inserted/Updated chunk {chunk['id']}")
+                logger.debug("Inserted or updated chunk", extra={"chunk_id": chunk['id']})
         
         # Flush Pinecone batch after DynamoDB write
         if self.pinecone_batch:
@@ -98,7 +99,7 @@ class ChunkManager:
         """Flush current batch to Pinecone"""
         if self.pinecone_batch:
             self.pinecone_index.upsert_records(PINECONE_NAMESPACE, self.pinecone_batch)
-            print(f"Upserted {len(self.pinecone_batch)} chunks to Pinecone")
+            logger.info("Upserted chunks to Pinecone", extra={"chunk_count": len(self.pinecone_batch)})
             self.pinecone_batch = []
     
     def finalize(self):

@@ -36,7 +36,7 @@ package-lock.json
 backend/chat
 backend/local_chat.py
 backend/get_gmail_token.py
-
+backend/lambda/layers
 .env
 
 ml/**/*.csv

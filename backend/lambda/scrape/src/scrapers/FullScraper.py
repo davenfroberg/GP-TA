@@ -1,3 +1,7 @@
+from aws_lambda_powertools.metrics import MetricUnit
+
+from config.logger import logger
+from config.metrics import metrics
 from scrapers.AbstractScraper import AbstractScraper
 from scrapers.core.PiazzaDataExtractor import PiazzaDataExtractor
 from scrapers.core.TextProcessor import TextProcessor
@@ -9,15 +13,17 @@ class FullScraper(AbstractScraper):
     def scrape(self, event):
         try:
             course_id = event["course_id"]
-        except Exception as e:
-            print(f"Error getting course_id from scrape message: {e}")
+        except Exception:
+            logger.exception("Failed to extract course_id from event")
             raise
         
         self.scrape_class(course_id)
 
     def scrape_class(self, class_id):
         """Main scrape function"""
-        print(f"Starting scrape for course_id: {class_id}")
+        logger.info("Starting full scrape", extra={"course_id": class_id})
+        metrics.add_metric(name="ScrapeRuns", unit=MetricUnit.Count, value=1)
+        processed_posts = 0
         try:
             network = self.piazza.network(class_id)
             extractor = PiazzaDataExtractor(network)
@@ -37,16 +43,21 @@ class FullScraper(AbstractScraper):
                         post_chunks.append(chunk)
                 # this actually does the upsert to Pinecone and store to DynamoDB
                 self.chunk_manager.process_post_chunks(post_chunks)
+                processed_posts += 1
             
             total_chunks = self.chunk_manager.finalize()
-            print(f"Successfully upserted {total_chunks} chunks for course_id: {class_id}")
-            print(f"Ending scrape for course_id: {class_id}")
+            logger.info(
+                "Completed full scrape",
+                extra={"course_id": class_id, "total_chunks": total_chunks},
+            )
+            metrics.add_metric(name="ScrapePostsProcessed", unit=MetricUnit.Count, value=processed_posts)
+            metrics.add_metric(name="ScrapeChunksUpserted", unit=MetricUnit.Count, value=total_chunks)
             
             return {
                 "statusCode": 200,
                 "message": f"Successfully upserted {total_chunks} chunks"
             }
             
-        except Exception as e:
-            print(f"Error when scraping course_id: {class_id}: {e}")
+        except Exception:
+            logger.exception("Full scrape failed", extra={"course_id": class_id})
             raise
