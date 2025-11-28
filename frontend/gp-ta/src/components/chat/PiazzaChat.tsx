@@ -265,9 +265,6 @@ export default function PiazzaChat() {
 
   // Force scroll to bottom when switching tabs or sending new message
   useEffect(() => {
-    // Save scroll position of previous tab before switching
-    const prevActiveTabId = tabScrollPositionsRef.current.get(activeTabId);
-    
     // Restore scroll position for the new active tab
     restoreScrollPosition(activeTabId);
   }, [activeTabId, restoreScrollPosition]);
@@ -495,7 +492,10 @@ export default function PiazzaChat() {
         return;
       }
 
-      const userQuery = activeTab.messages[usersMessageIndex].text;
+      const userMessage = activeTab.messages[usersMessageIndex];
+      const userQuery = userMessage.text;
+      // Use the course from the user message, fallback to activeTab.selectedCourse if not set
+      const messageCourse = userMessage.course || activeTab.selectedCourse;
 
       const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`, {
         method: 'POST',
@@ -504,7 +504,7 @@ export default function PiazzaChat() {
         },
         body: JSON.stringify({
           user_query: userQuery,
-          course_display_name: activeTab.selectedCourse
+          course_display_name: messageCourse
         })
       });
         
@@ -521,7 +521,7 @@ export default function PiazzaChat() {
         const newNotification = {
           id: notificationId,
           query: userQuery,
-          course_name: activeTab.selectedCourse
+          course_name: messageCourse
         };
         setNotifications(prev => {
           const updated = [...prev, newNotification];
