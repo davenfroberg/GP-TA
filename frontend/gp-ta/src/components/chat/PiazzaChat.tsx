@@ -31,6 +31,7 @@ export default function PiazzaChat() {
   const [editingTab, setEditingTab] = useState<{id: number, title: string} | null>(null);
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [pendingPostGeneration, setPendingPostGeneration] = useState(false);
+  const [postToPiazzaMessageId, setPostToPiazzaMessageId] = useState<number | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>(() => {
     const stored = localStorage.getItem('gp-ta-notifications');
@@ -566,7 +567,8 @@ export default function PiazzaChat() {
   }, [activeTabId, activeTab.messages, activeTab.selectedCourse, addSimpleAIResponse, setTabs]);
 
   const handlePostToPiazza = useCallback((messageId: number) => {
-    // Open the post generator popup
+    // Store the message ID and open the post generator popup
+    setPostToPiazzaMessageId(messageId);
     setIsPopupOpen(true);
     setPendingPostGeneration(true);
   }, []);
@@ -684,6 +686,7 @@ export default function PiazzaChat() {
   // Memoized popup handlers
   const handlePopupClose = useCallback(() => {
     setIsPopupOpen(false);
+    setPostToPiazzaMessageId(null);
     if (pendingPostGeneration) {
       setPendingPostGeneration(false);
     }
@@ -691,6 +694,7 @@ export default function PiazzaChat() {
 
   const handlePostSuccess = useCallback((postLink: string) => {
     setIsPopupOpen(false);
+    setPostToPiazzaMessageId(null);
     setPendingPostGeneration(false);
     const message = "I posted to Piazza for you! Keep an eye on Piazza for an answer to your question. See your post [here!](" + postLink + ")";
     addSimpleAIResponse(message);
@@ -888,6 +892,7 @@ export default function PiazzaChat() {
         onPostSuccess={handlePostSuccess}
         themeClasses={themeClasses}
         activeTab={activeTab}
+        messageId={postToPiazzaMessageId}
       />
       <NotificationsModal
         isOpen={isNotificationsOpen}

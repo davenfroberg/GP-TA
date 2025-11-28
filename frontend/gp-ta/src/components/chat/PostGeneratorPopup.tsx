@@ -7,14 +7,10 @@ interface PostGeneratorPopupProps {
   onPostSuccess?: (postLink: string) => void;
   themeClasses: any; // themeClasses from PiazzaChat
   activeTab?: any; // activeTab from PiazzaChat
+  messageId?: number | null; // The ID of the assistant message that was clicked
 }
 
 type PopupState = 'input' | 'generating' | 'editing' | 'posting';
-
-interface GeneratedPost {
-  post_title: string;
-  post_content: string;
-}
 
 // Course folder mappings with hierarchical structure
 interface FolderItem {
@@ -107,10 +103,10 @@ export default function PostGeneratorPopup({
   onPostSuccess,
   themeClasses,
   activeTab,
+  messageId,
 }: PostGeneratorPopupProps) {
   const [details, setDetails] = useState("");
   const [state, setState] = useState<PopupState>('input');
-  const [generatedPost, setGeneratedPost] = useState<GeneratedPost | null>(null);
   const [editableTitle, setEditableTitle] = useState("");
   const [editableContent, setEditableContent] = useState("");
   const [postAnonymously, setPostAnonymously] = useState(true);
@@ -131,7 +127,6 @@ export default function PostGeneratorPopup({
     if (!isOpen) {
       setDetails("");
       setState('input');
-      setGeneratedPost(null);
       setEditableTitle("");
       setEditableContent("");
       setPostAnonymously(true);
@@ -141,12 +136,28 @@ export default function PostGeneratorPopup({
     }
   }, [isOpen]);
 
-  // Set initial course when popup opens
+  // Set initial course when popup opens - use course from the message if available
   useEffect(() => {
+    if (isOpen && activeTab && messageId) {
+      // Find the course from the original user message
+      type Message = { id: number; role: string; text: string; course?: string };
+      const messages: Message[] = activeTab.messages;
+      const assistantIndex = messages.findIndex((m: Message) => m.id === messageId && m.role === "assistant");
+      
+      if (assistantIndex !== -1 && assistantIndex > 0) {
+        const userMessage = messages[assistantIndex - 1];
+        if (userMessage && userMessage.role === "user" && userMessage.course) {
+          setSelectedCourse(userMessage.course);
+          return;
+        }
+      }
+    }
+    
+    // Fallback to activeTab's selected course
     if (isOpen && activeTab?.selectedCourse) {
       setSelectedCourse(activeTab.selectedCourse);
     }
-  }, [isOpen, activeTab?.selectedCourse]);
+  }, [isOpen, activeTab, messageId]);
 
   // Close on Escape key
   useEffect(() => {
@@ -166,7 +177,6 @@ export default function PostGeneratorPopup({
   const handleCancel = () => {
     setDetails("");
     setState('input');
-    setGeneratedPost(null);
     setEditableTitle("");
     setEditableContent("");
     setPostAnonymously(true);
@@ -191,17 +201,53 @@ export default function PostGeneratorPopup({
 
   const generatePost = async (additionalContext: string) => {
     try {
-      // Get the last assistant response and second-to-last user message from activeTab
+      // Get the specific assistant message and corresponding user message
       if (!activeTab) {
         setState('input');
         return;
       }
       
-      type Message = { role: string; text: string };
+      type Message = { id: number; role: string; text: string; course?: string };
       const messages: Message[] = activeTab.messages;
-      const lastAssistantMessage = messages.filter((m: Message) => m.role === "assistant").pop();
-      const userMessages = messages.filter((m: Message) => m.role === "user");
-      const originalQuestion = userMessages.length >= 2 ? userMessages[userMessages.length - 2].text : "";
+      
+      // Find the specific assistant message by messageId, or fall back to the last one
+      let assistantMessage: Message | undefined;
+      let originalQuestion = "";
+      let messageCourse: string | undefined;
+      
+      if (messageId) {
+        // Find the specific assistant message that was clicked
+        const assistantIndex = messages.findIndex((m: Message) => m.id === messageId && m.role === "assistant");
+        
+        if (assistantIndex !== -1) {
+          assistantMessage = messages[assistantIndex];
+          // The user's message should be right before this assistant message
+          if (assistantIndex > 0) {
+            const userMessage = messages[assistantIndex - 1];
+            if (userMessage && userMessage.role === "user") {
+              originalQuestion = userMessage.text;
+              messageCourse = userMessage.course;
+            }
+          }
+        }
+      }
+      
+      // Fallback to latest messages if messageId not found or not provided
+      if (!assistantMessage) {
+        const assistantMessages = messages.filter((m: Message) => m.role === "assistant");
+        assistantMessage = assistantMessages[assistantMessages.length - 1];
+        const userMessages = messages.filter((m: Message) => m.role === "user");
+        if (userMessages.length >= 2) {
+          const userMessage = userMessages[userMessages.length - 2];
+          originalQuestion = userMessage.text;
+          messageCourse = userMessage.course;
+        }
+      }
+      
+      // Update selected course if we found one from the message
+      if (messageCourse) {
+        setSelectedCourse(messageCourse);
+      }
       
       const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/generate-post`, {
         method: 'POST',
@@ -209,7 +255,7 @@ export default function PostGeneratorPopup({
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          llm_attempt: lastAssistantMessage?.text || "",
+          llm_attempt: assistantMessage?.text || "",
           original_question: originalQuestion,
           additional_context: additionalContext
         })
@@ -221,7 +267,6 @@ export default function PostGeneratorPopup({
       
       const data = await response.json();
       
-      setGeneratedPost(data);
       setEditableTitle(data.post_title);
       setEditableContent(data.post_content);
       setState('editing');
@@ -243,7 +288,7 @@ export default function PostGeneratorPopup({
         },
         body: JSON.stringify({
           api_key: import.meta.env.VITE_GP_TA_API_KEY,
-          course: activeTab?.selectedCourse || "CPSC 110",
+          course: selectedCourse || activeTab?.selectedCourse || "CPSC 110",
           post_type: "question",
           post_folders: getSelectedPaths(),
           post_subject: editableTitle,
@@ -275,8 +320,9 @@ export default function PostGeneratorPopup({
 
   // Get available folders for the current course
   const getAvailableFolders = () => {
-    if (!activeTab?.selectedCourse) return [{ name: "General" }];
-    return COURSE_FOLDERS[activeTab.selectedCourse] || [{ name: "General" }];
+    const course = selectedCourse || activeTab?.selectedCourse;
+    if (!course) return [{ name: "General" }];
+    return COURSE_FOLDERS[course] || [{ name: "General" }];
   };
 
   // Handle folder selection
