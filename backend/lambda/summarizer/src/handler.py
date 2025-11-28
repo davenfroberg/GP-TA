@@ -17,16 +17,14 @@ def lambda_handler(event, context):
     items_to_process = []
     
     response = posts_table.scan(
-        FilterExpression=Attr('summary_last_updated').eq(None) | 
-                        Attr('last_major_update').gt(Attr('summary_last_updated'))
+        FilterExpression=Attr('last_major_update').gt(Attr('summary_last_updated'))
     )
 
     items_to_process.extend(response['Items'])
     
     while 'LastEvaluatedKey' in response:
         response = posts_table.scan(
-            FilterExpression=Attr('summary_last_updated').eq(None) | 
-                            Attr('last_major_update').gt(Attr('summary_last_updated')),
+            FilterExpression=Attr('last_major_update').gt(Attr('summary_last_updated')),
             ExclusiveStartKey=response['LastEvaluatedKey']
         )
         items_to_process.extend(response['Items'])
@@ -124,7 +122,7 @@ def needs_fresh_summary(post, current_time):
     summarization_range = 2 # days
     
     # if never summarized, we can't have a fresh start because there's no start to begin with
-    if last_summarized_str is None:
+    if not last_summarized_str or last_summarized_str < '2000-01-01T00:00:00Z':
         return False
 
     try:

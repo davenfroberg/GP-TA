@@ -199,7 +199,7 @@ class PostManager:
                 "num_changes": len(change_log),
                 "is_announcement": is_announcement,
                 "current_summary": None, # this is set when the summarizer runs
-                "summary_last_updated": None, # summarizer should find posts with summary_last_updated < last_major_update OR == None
+                "summary_last_updated": "1970-01-01T00:00:00Z", # summarizer should find posts with summary_last_updated < last_major_update OR == None
                 "needs_new_summary": False # should the summarizer reset the summary? Set to True after user asks for summary
             }
         )

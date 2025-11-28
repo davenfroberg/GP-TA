@@ -376,7 +376,7 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
             # Detect BODY_END
             if inside_body and "BODY_END" in buffer:
                 body_end_idx = buffer.find("BODY_END")
-                body_content = buffer[:body_end_idx].strip()
+                body_content = buffer[:body_end_idx].rstrip()
 
                 # Send only the body content
                 if body_content:

@@ -139,10 +139,11 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
         
         summaries_text = format_summaries_for_llm(summaries)
         
-        send_websocket_message(apigw_management, connection_id, {
-            "message": f"Found {len(summaries)} recent updates. Generating digest...",
-            "type": WebSocketType.PROGRESS_UPDATE.value
-        })
+        # Commenting this out because I find it's too fast to read and adds confusion
+        # send_websocket_message(apigw_management, connection_id, {
+        #     "message": f"Found {len(summaries)} recent updates. Generating digest...",
+        #     "type": WebSocketType.PROGRESS_UPDATE.value
+        # })
         
         prompt = (
             f"Here are summaries of {len(summaries)} Piazza posts from the last {days} days:\n\n"
