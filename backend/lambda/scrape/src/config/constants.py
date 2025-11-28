@@ -24,6 +24,11 @@ COURSE_NAMES = {
     "met4o2esgko2zu": "CPSC 418"
 }
 
+# Course IDs to ignore during processing
+IGNORED_COURSE_IDS = {
+    "meae0a6pfhq6i9" # CPSC 436N (not my piazza course)
+}
+
 
 MAJOR_UPDATE_TYPES = [UpdateType.NEW_QUESTION.value, UpdateType.INSTRUCTOR_ANSWER.value, UpdateType.STUDENT_ANSWER.value]
 QUESTION_UPDATE_TYPES = [UpdateType.NEW_QUESTION.value, UpdateType.QUESTION_UPDATE.value]

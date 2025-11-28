@@ -1,22 +1,30 @@
 from typing import List, Dict
 from utils.clients import pinecone
 from utils.constants import PINECONE_INDEX_NAME, CLASSES, THRESHOLD_ADDER, MIN_THRESHOLD, MAX_THRESHOLD, NOTIFICATIONS_TABLE_NAME, MAX_NOTIFICATIONS
+from utils.logger import logger
 import json
 import boto3
 from decimal import Decimal
 
 def get_closest_embedding_score(query: str, class_id) -> List[Dict]:
     """Search Pinecone for the most relevant chunks for a given query and class."""
-    index = pinecone().Index(PINECONE_INDEX_NAME)
-    results = index.search(
-        namespace="piazza",
-        query={
-            "top_k": 1,
-            "filter": {"class_id": class_id},
-            "inputs": {"text": query}
-        }
-    )
-    return results['result']['hits'][0]["_score"]
+    try:
+        logger.debug("Searching Pinecone for closest embedding", extra={"query": query, "class_id": class_id})
+        index = pinecone().Index(PINECONE_INDEX_NAME)
+        results = index.search(
+            namespace="piazza",
+            query={
+                "top_k": 1,
+                "filter": {"class_id": class_id},
+                "inputs": {"text": query}
+            }
+        )
+        score = results['result']['hits'][0]["_score"]
+        logger.debug("Found closest embedding score", extra={"query": query, "class_id": class_id, "score": score})
+        return score
+    except Exception as e:
+        logger.exception("Failed to get closest embedding score", extra={"query": query, "class_id": class_id})
+        raise
 
 def compute_notification_threshold(closest_score: float) -> float:
     threshold = closest_score + THRESHOLD_ADDER
@@ -26,11 +34,54 @@ def create_notification(event):
     dynamo = boto3.resource('dynamodb')
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
     try:
+        logger.info("Creating notification")
+        
+        if not event.get('body'):
+            logger.warning("Missing request body")
+            return {
+                'statusCode': 400,
+                'headers': {
+                    'Content-Type': 'application/json',
+                },
+                'body': json.dumps({'error': 'Request body is required'})
+            }
+        
         body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
         
         user_query = body.get('user_query', '')
         course_display_name = body.get('course_display_name', '')
-        course_id = CLASSES[course_display_name.lower().replace(" ", "")]
+        
+        if not user_query or not course_display_name:
+            logger.warning("Missing required fields", extra={
+                "has_user_query": bool(user_query),
+                "has_course_display_name": bool(course_display_name)
+            })
+            return {
+                'statusCode': 400,
+                'headers': {
+                    'Content-Type': 'application/json',
+                },
+                'body': json.dumps({'error': 'user_query and course_display_name are required'})
+            }
+        
+        course_key = course_display_name.lower().replace(" ", "")
+        if course_key not in CLASSES:
+            logger.warning("Course not found in CLASSES mapping", extra={"course_display_name": course_display_name, "course_key": course_key})
+            return {
+                'statusCode': 400,
+                'headers': {
+                    'Content-Type': 'application/json',
+                },
+                'body': json.dumps({'error': f'Course "{course_display_name}" not found'})
+            }
+        
+        course_id = CLASSES[course_key]
+        
+        logger.info("Processing notification creation", extra={
+            "user_query": user_query,
+            "course_display_name": course_display_name,
+            "course_id": course_id
+        })
 
         response = table.query(
             KeyConditionExpression=(
@@ -42,6 +93,11 @@ def create_notification(event):
         items = response.get("Items", [])
         if items:
             # OK response when nothing is created due to duplicate
+            logger.info("Notification already exists", extra={
+                "user_query": user_query,
+                "course_id": course_id,
+                "course_display_name": course_display_name
+            })
             return {
                 'statusCode': 200,
                 'headers': {
@@ -56,6 +112,13 @@ def create_notification(event):
         closest_score = get_closest_embedding_score(user_query, course_id)
         
         notification_threshold = compute_notification_threshold(closest_score)
+        
+        logger.info("Computed notification threshold", extra={
+            "user_query": user_query,
+            "course_id": course_id,
+            "closest_score": closest_score,
+            "notification_threshold": notification_threshold
+        })
 
         dynamo_record = {
             "closest_score": closest_score,
@@ -71,6 +134,12 @@ def create_notification(event):
         table.put_item(
             Item=dynamo_record
         )
+        
+        logger.info("Successfully created notification", extra={
+            "user_query": user_query,
+            "course_id": course_id,
+            "course_display_name": course_display_name
+        })
 
         # created response
         return {
@@ -85,7 +154,7 @@ def create_notification(event):
         }
         
     except json.JSONDecodeError as e:
-        print(f"JSON decode error: {str(e)}")
+        logger.exception("JSON decode error in create_notification")
         return {
             'statusCode': 400,
             'headers': {
@@ -97,14 +166,13 @@ def create_notification(event):
         }
     
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logger.exception("Error creating notification")
         return {
             'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
             },
             'body': json.dumps({
-                'error': 'Internal server error',
-                'details': str(e)
+                'error': 'Internal server error'
             })
         }

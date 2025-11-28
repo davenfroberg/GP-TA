@@ -2,6 +2,7 @@ import json
 import boto3
 from botocore.exceptions import ClientError
 from openai import OpenAI
+from utils.logger import logger
 
 # Configuration Constants
 SECRETS = {
@@ -29,23 +30,28 @@ def get_secret_api_key(secret_name: str) -> str:
     client = get_ssm_client()
     
     try:
+        logger.debug("Retrieving secret from Parameter Store", extra={"secret_name": secret_name})
         response = client.get_parameter(
             Name=secret_name,
             WithDecryption=True
         )
+        logger.debug("Successfully retrieved secret from Parameter Store", extra={"secret_name": secret_name})
         return response['Parameter']['Value']
     except ClientError as e:
+        logger.exception("Failed to retrieve credentials from Parameter Store", extra={"secret_name": secret_name})
         raise RuntimeError(f"Failed to retrieve credentials from Parameter Store: {e}")
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        logger.exception("Unexpected error retrieving secret", extra={"secret_name": secret_name})
         raise
 
 def get_openai_client():
     """Get or create OpenAI client."""
     global _openai_client
     if _openai_client is None:
+        logger.debug("Initializing OpenAI client")
         openai_api_key = get_secret_api_key(SECRETS['OPENAI'])
         _openai_client = OpenAI(api_key=openai_api_key)
+        logger.debug("OpenAI client initialized successfully")
     return _openai_client
 
 def create_system_prompt() -> str:
@@ -71,32 +77,89 @@ def create_system_prompt() -> str:
         '  "post_content": "Hey, I saw some posts about Homework 2 but couldn’t find a clear answer. Has it been released yet, or is it still pending? I checked Piazza and the course notes but didn’t see anything definitive." \n'
         '}\n'
     )
+@logger.inject_lambda_context(log_event=True)
 def lambda_handler(event, context):
     try:
+        logger.info("Processing generate-post request")
+        
         # Parse request data
         event_body = event.get("body")
         if not event_body:
-            raise ValueError("No body in request")
+            logger.warning("Missing request body")
+            return {
+                "statusCode": 400,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "Request body is required"})
+            }
         
-        data = json.loads(event_body)
+        try:
+            data = json.loads(event_body)
+        except json.JSONDecodeError as e:
+            logger.exception("Failed to parse request body as JSON")
+            return {
+                "statusCode": 400,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "Invalid JSON in request body"})
+            }
+        
         llm_attempt = data.get("llm_attempt", "The LLM did not respond.")
         original_question = data.get("original_question", "No original question provided.")
         additional_context = data.get("additional_context", "No additional context provided.")
+        
+        if not original_question or original_question == "No original question provided.":
+            logger.warning("Missing or invalid original_question")
+            return {
+                "statusCode": 400,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "original_question is required"})
+            }
 
+        logger.info("Generating post", extra={
+            "has_llm_attempt": bool(llm_attempt),
+            "has_additional_context": bool(additional_context),
+            "original_question_length": len(original_question)
+        })
 
         prompt = f"Assitant's Attempt At Answering:\n{llm_attempt}\n\nAdditional Provided Context:\n{additional_context}\n\nStudent's Original Question: {original_question}\nAnswer:"
         
-        openai_client = get_openai_client()
-        response = openai_client.responses.create(
-            model="gpt-5",
-            reasoning={"effort": "minimal"},
-            instructions=create_system_prompt(),
-            input=prompt
-        )
+        try:
+            openai_client = get_openai_client()
+            logger.debug("Calling OpenAI API to generate post")
+            response = openai_client.responses.create(
+                model="gpt-5",
+                reasoning={"effort": "minimal"},
+                instructions=create_system_prompt(),
+                input=prompt
+            )
+            logger.debug("Received response from OpenAI API")
+        except Exception as e:
+            logger.exception("Failed to call OpenAI API")
+            return {
+                "statusCode": 500,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "Failed to generate post"})
+            }
 
-        response_text = response.output[1].content[0].text
-        generated_title = json.loads(response_text).get("post_title", "No title generated")
-        generated_body = json.loads(response_text).get("post_content", "No content generated")
+        try:
+            response_text = response.output[1].content[0].text
+            parsed_response = json.loads(response_text)
+            generated_title = parsed_response.get("post_title", "No title generated")
+            generated_body = parsed_response.get("post_content", "No content generated")
+            
+            logger.info("Successfully generated post", extra={
+                "has_title": bool(generated_title),
+                "has_content": bool(generated_body),
+                "title_length": len(generated_title) if generated_title else 0,
+                "content_length": len(generated_body) if generated_body else 0
+            })
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.exception("Failed to parse OpenAI response", extra={"response_structure": str(response)})
+            return {
+                "statusCode": 500,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "Failed to parse generated post"})
+            }
+        
         return {
             "statusCode": 200,
             "headers": {"Content-Type": "application/json"},
@@ -107,11 +170,11 @@ def lambda_handler(event, context):
         }
 
     except Exception as e:
-        print(f"Error processing request: {e}")
+        logger.exception("Unexpected error in lambda_handler")
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "application/json"},
-            "body": json.dumps({"error": str(e)})
+            "body": json.dumps({"error": "Internal server error"})
         }
 
 if __name__ == "__main__":

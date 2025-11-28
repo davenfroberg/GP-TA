@@ -1,6 +1,7 @@
 from utils.constants import CLASSES
 from utils.utils import send_websocket_message
 from utils.clients import openai, apigw
+from utils.logger import logger
 from typing import Dict
 from enums.WebSocketType import WebSocketType
 
@@ -65,7 +66,7 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
         # })
         
     except Exception as e:
-        print(f"Error processing request: {e}")
+        logger.exception("Error processing overview request", extra={"connection_id": connection_id, "class_id": class_id})
         send_websocket_message(apigw_management, connection_id, {
             "message": "An error occurred while processing your request. Please try again later.",
             "type": WebSocketType.CHUNK.value

@@ -4,7 +4,7 @@ import boto3
 
 from aws_lambda_powertools.metrics import MetricUnit
 
-from config.constants import AWS_REGION_NAME
+from config.constants import AWS_REGION_NAME, IGNORED_COURSE_IDS
 from config.logger import logger
 from config.metrics import metrics
 from scrapers.AbstractScraper import AbstractScraper
@@ -65,6 +65,21 @@ class IncrementalScraper(AbstractScraper):
         processed_posts = 0
         failed_posts = 0
         for course_id, post_ids in grouped.items():
+            # Skip ignored courses
+            if course_id in IGNORED_COURSE_IDS:
+                logger.info(
+                    "Skipping ignored course",
+                    extra={"course_id": course_id, "post_count": len(post_ids)},
+                )
+                # Delete SQS messages for ignored course without processing
+                for post_id in post_ids:
+                    sqs_msg = postid_to_msg[post_id]
+                    try:
+                        self.sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=sqs_msg['ReceiptHandle'])
+                    except Exception:
+                        logger.exception("Failed to delete SQS message for ignored course", extra={"post_id": post_id, "course_id": course_id})
+                continue
+            
             logger.info(
                 "Processing incremental updates for course",
                 extra={"course_id": course_id, "post_count": len(post_ids)},

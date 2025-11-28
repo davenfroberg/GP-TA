@@ -11,7 +11,6 @@ from piazza_api import Piazza
 
 class AbstractScraper(ABC):
     def __init__(self):
-        logger.debug("Initializing AbstractScraper dependencies")
         ssm = AWSParameterStore()
         piazza_username, piazza_password = ssm.get_piazza_credentials()
 
@@ -23,11 +22,9 @@ class AbstractScraper(ABC):
         chunks_table = dynamodb.Table(CHUNKS_TABLE_NAME)
         posts_table = dynamodb.Table(POSTS_TABLE_NAME)
         diffs_table = dynamodb.Table(DIFFS_TABLE_NAME)
-        logger.debug("Initialized DynamoDB resources", extra={"tables": [CHUNKS_TABLE_NAME, POSTS_TABLE_NAME, DIFFS_TABLE_NAME]})
 
         pinecone_api_key = ssm.get_secret_api_key(SECRETS["PINECONE"])
         pinecone_index = Pinecone(api_key=pinecone_api_key).Index(PINECONE_INDEX_NAME)
-        logger.debug("Initialized Pinecone index", extra={"index_name": PINECONE_INDEX_NAME})
 
         notification_service = NotificationService()
 

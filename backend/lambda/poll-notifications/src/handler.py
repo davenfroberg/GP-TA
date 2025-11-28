@@ -1,6 +1,5 @@
 from pinecone import Pinecone
 import boto3
-import logging
 from utils.constants import (
     NOTIFICATIONS_DYNAMO_TABLE_NAME, 
     SENT_NOTIFICATIONS_DYNAMO_TABLE_NAME, 
@@ -11,13 +10,10 @@ from utils.constants import (
     SES_RECIPIENT_EMAIL
 )
 from utils.utils import get_secret_api_key
+from utils.logger import logger
 from typing import List, Dict, Set
 from boto3.dynamodb.conditions import Key
 from dataclasses import dataclass
-
-# Configure logging
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 ssm_client = boto3.client('ssm')
@@ -25,8 +21,12 @@ ses = boto3.client('ses', region_name=AWS_REGION_NAME)
 dynamo = boto3.resource('dynamodb')
 
 # Initialize Pinecone
-pc = Pinecone(api_key=get_secret_api_key(ssm_client, SECRETS["PINECONE"]))
-index = pc.Index(PINECONE_INDEX_NAME)
+try:
+    pc = Pinecone(api_key=get_secret_api_key(ssm_client, SECRETS["PINECONE"]))
+    index = pc.Index(PINECONE_INDEX_NAME)
+except Exception as e:
+    logger.exception("Failed to initialize Pinecone client", extra={"index_name": PINECONE_INDEX_NAME})
+    raise
 
 # Initialize DynamoDB tables
 sent_notifications_table = dynamo.Table(SENT_NOTIFICATIONS_DYNAMO_TABLE_NAME)
@@ -76,26 +76,42 @@ class NotificationService:
                 ExclusiveStartKey=response['LastEvaluatedKey']
             )
         
-        logger.info(f"Found {len(notifications)} active notifications")
+        logger.info("Found active notifications", extra={"notification_count": len(notifications)})
         return notifications
     
     def search_embeddings(self, query: str, class_id: str, top_k: int) -> List[EmbeddingMatch]:
         """Search Pinecone for matching embeddings"""
-        logger.info(f"Searching Pinecone for query='{query}', class_id={class_id}, top_k={top_k}")
+        logger.info("Searching Pinecone for embeddings", extra={
+            "query": query,
+            "class_id": class_id,
+            "top_k": top_k
+        })
         
-        results = index.search(
-            namespace="piazza",
-            query={
-                "top_k": top_k,
-                "filter": {"class_id": class_id},
-                "inputs": {"text": query}
-            }
-        )
-        
-        hits = results['result']['hits']
-        logger.info(f"Pinecone returned {len(hits)} results")
-        
-        return [self._parse_embedding(hit) for hit in hits]
+        try:
+            results = index.search(
+                namespace="piazza",
+                query={
+                    "top_k": top_k,
+                    "filter": {"class_id": class_id},
+                    "inputs": {"text": query}
+                }
+            )
+            
+            hits = results['result']['hits']
+            logger.info("Pinecone search completed", extra={
+                "class_id": class_id,
+                "result_count": len(hits),
+                "top_k": top_k
+            })
+            
+            return [self._parse_embedding(hit) for hit in hits]
+        except Exception as e:
+            logger.exception("Failed to search Pinecone", extra={
+                "query": query,
+                "class_id": class_id,
+                "top_k": top_k
+            })
+            raise
     
     def _parse_embedding(self, hit: Dict) -> EmbeddingMatch:
         """Parse Pinecone hit into EmbeddingMatch object"""
@@ -127,11 +143,21 @@ class NotificationService:
                     }
                 }
             )
-            logger.info(f"Email sent successfully for chunk_id={match.chunk_id}")
+            logger.info("Email sent successfully", extra={
+                "chunk_id": match.chunk_id,
+                "course_id": config.course_id,
+                "recipient_email": config.recipient_email,
+                "root_id": match.root_id
+            })
             return True
             
         except Exception as e:
-            logger.error(f"Failed to send email for chunk_id={match.chunk_id}: {str(e)}")
+            logger.exception("Failed to send email", extra={
+                "chunk_id": match.chunk_id,
+                "course_id": config.course_id,
+                "recipient_email": config.recipient_email,
+                "root_id": match.root_id
+            })
             return False
     
     def _build_text_body(self, config: NotificationConfig, match: EmbeddingMatch) -> str:
@@ -185,7 +211,11 @@ class NotificationService:
         if not chunk_ids:
             return True
         
-        logger.info(f"Writing {len(chunk_ids)} notifications to sent_notifications_table")
+        logger.info("Writing notifications to sent_notifications_table", extra={
+            "course_id": course_id,
+            "query": query,
+            "chunk_count": len(chunk_ids)
+        })
         
         try:
             pk = f"{course_id}#{query}"
@@ -199,11 +229,19 @@ class NotificationService:
                         "query": query
                     })
             
-            logger.info(f"Successfully wrote {len(chunk_ids)} notifications")
+            logger.info("Successfully wrote notifications", extra={
+                "course_id": course_id,
+                "query": query,
+                "chunk_count": len(chunk_ids)
+            })
             return True
             
         except Exception as e:
-            logger.error(f"Failed to write notifications: {str(e)}")
+            logger.exception("Failed to write notifications", extra={
+                "course_id": course_id,
+                "query": query,
+                "chunk_count": len(chunk_ids)
+            })
             return False
     
     def update_notification_limit(self, course_id: str, query: str, increment: int) -> bool:
@@ -214,11 +252,19 @@ class NotificationService:
                 UpdateExpression="SET max_notifications = max_notifications + :inc",
                 ExpressionAttributeValues={':inc': increment}
             )
-            logger.info(f"Updated max_notifications for course_id={course_id}, incremented by {increment}")
+            logger.info("Updated max_notifications counter", extra={
+                "course_id": course_id,
+                "query": query,
+                "increment": increment
+            })
             return True
             
         except Exception as e:
-            logger.error(f"Failed to update max_notifications: {str(e)}")
+            logger.exception("Failed to update max_notifications", extra={
+                "course_id": course_id,
+                "query": query,
+                "increment": increment
+            })
             return False
     
     def get_sent_chunk_ids(self, course_id: str, query: str) -> Set[str]:
@@ -241,11 +287,18 @@ class NotificationService:
                     ExclusiveStartKey=response['LastEvaluatedKey']
                 )
             
-            logger.info(f"Found {len(chunk_ids)} previously sent notifications for course_id={course_id}, query='{query}'")
+            logger.info("Found previously sent notifications", extra={
+                "course_id": course_id,
+                "query": query,
+                "sent_count": len(chunk_ids)
+            })
             return chunk_ids
             
         except Exception as e:
-            logger.error(f"Failed to query sent notifications: {str(e)}")
+            logger.exception("Failed to query sent notifications", extra={
+                "course_id": course_id,
+                "query": query
+            })
             return set()
     
     def process_notification(self, notification_data: Dict) -> int:
@@ -259,7 +312,13 @@ class NotificationService:
             recipient_email=notification_data.get('email', SES_RECIPIENT_EMAIL)
         )
         
-        logger.info(f"Processing: course_id={config.course_id}, query='{config.query}'")
+        logger.info("Processing notification", extra={
+            "course_id": config.course_id,
+            "course_name": config.course_name,
+            "query": config.query,
+            "threshold": config.threshold,
+            "top_k": config.top_k
+        })
         
         try:
             # Get all previously sent chunk_ids for this course_id#query
@@ -280,45 +339,78 @@ class NotificationService:
             if new_sent_chunk_ids:
                 self.save_sent_notifications(config.course_id, config.query, new_sent_chunk_ids)
                 self.update_notification_limit(config.course_id, config.query, len(new_sent_chunk_ids))
+                logger.info("Notification processing completed", extra={
+                    "course_id": config.course_id,
+                    "query": config.query,
+                    "notifications_sent": len(new_sent_chunk_ids)
+                })
                 return len(new_sent_chunk_ids)
             
-            logger.info(f"No new notifications for course_id={config.course_id}")
+            logger.info("No new notifications to send", extra={
+                "course_id": config.course_id,
+                "query": config.query
+            })
             return 0
             
         except Exception as e:
-            logger.error(f"Error processing notification: {str(e)}")
+            logger.exception("Error processing notification", extra={
+                "course_id": config.course_id,
+                "query": config.query
+            })
             return 0
     
     def _should_send_notification(self, match: EmbeddingMatch, sent_chunk_ids: Set[str], threshold: float) -> bool:
         """Determine if notification should be sent for this match"""
         
         if match.score < threshold:
-            logger.info(f"Skipping chunk_id={match.chunk_id} - score below threshold {threshold}")
+            logger.debug("Skipping notification - score below threshold", extra={
+                "chunk_id": match.chunk_id,
+                "score": match.score,
+                "threshold": threshold,
+                "root_id": match.root_id
+            })
             return False
 
         if match.chunk_id in sent_chunk_ids:
-            logger.info(f"Skipping chunk_id={match.chunk_id} - already notified for this query")
+            logger.debug("Skipping notification - already sent", extra={
+                "chunk_id": match.chunk_id,
+                "root_id": match.root_id
+            })
             return False
 
-        logger.info(f"Sending notification for chunk_id={match.chunk_id}")
+        logger.info("Notification will be sent", extra={
+            "chunk_id": match.chunk_id,
+            "score": match.score,
+            "threshold": threshold,
+            "root_id": match.root_id,
+            "title": match.title
+        })
         return True
 
 
+@logger.inject_lambda_context(log_event=True)
 def lambda_handler(event, context):
     """Main Lambda handler"""
     try:
         service = NotificationService()
         active_notifications = service.get_active_notifications()
         
+        if not active_notifications:
+            logger.info("No active notifications found")
+            return {"statusCode": 200, "notifications_sent": 0}
+        
         total_sent = 0
         for notification in active_notifications:
             total_sent += service.process_notification(notification)
         
-        logger.info(f"Lambda completed. Total notifications sent: {total_sent}")
+        logger.info("Lambda execution completed", extra={
+            "total_notifications_sent": total_sent,
+            "active_notification_count": len(active_notifications)
+        })
         return {"statusCode": 200, "notifications_sent": total_sent}
         
     except Exception as e:
-        logger.error(f"Fatal error in lambda_handler: {str(e)}")
+        logger.exception("Fatal error in lambda_handler")
         return {"statusCode": 500, "error": str(e)}
 
 

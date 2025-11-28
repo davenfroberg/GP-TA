@@ -2,23 +2,9 @@ import json
 from piazza_api import Piazza
 import boto3
 from botocore.exceptions import ClientError
-from pprint import pprint
+from utils.constants import COURSE_TO_ID, SECRETS, AWS_REGION_NAME
+from utils.logger import logger
 
-course_to_network = {
-    "CPSC 110": "mdi1cvod8vu5hf",
-    "CPSC 121": "mcv0sbotg6s51",
-    "CPSC 330": "mekbcze4gyber",
-    "CPSC 404": "mdp45gef5b21ej",
-    "CPSC 418": "met4o2esgko2zu"
-}
-
-SECRETS = {
-    "PIAZZA_USER": "piazza_username",
-    "PIAZZA_PASS": "piazza_password",
-    "API_KEY": "api_gateway_key"
-}
-
-AWS_REGION_NAME = "us-west-2"
 
 def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
         """Get API key from AWS Parameter Store"""
@@ -28,15 +14,18 @@ def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
             region_name=region_name
         )
         try:
+            logger.debug("Retrieving secret from Parameter Store", extra={"secret_name": secret_name})
             response = client.get_parameter(
                 Name=secret_name,
                 WithDecryption=True
             )
+            logger.debug("Successfully retrieved secret from Parameter Store", extra={"secret_name": secret_name})
             return response['Parameter']['Value']
         except ClientError as e:
+            logger.exception("Failed to retrieve credentials from Parameter Store", extra={"secret_name": secret_name})
             raise RuntimeError(f"Failed to retrieve credentials from Parameter Store: {e}")
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            logger.exception("Unexpected error retrieving secret", extra={"secret_name": secret_name})
             raise
 
 def get_piazza_credentials(username_secret=SECRETS['PIAZZA_USER'], password_secret=SECRETS['PIAZZA_PASS'], region_name=AWS_REGION_NAME):
@@ -47,6 +36,7 @@ def get_piazza_credentials(username_secret=SECRETS['PIAZZA_USER'], password_secr
             region_name=region_name
         )
         try:
+            logger.debug("Retrieving Piazza credentials from Parameter Store")
             username_response = client.get_parameter(
                 Name=username_secret,
                 WithDecryption=True
@@ -58,15 +48,16 @@ def get_piazza_credentials(username_secret=SECRETS['PIAZZA_USER'], password_secr
             username = username_response['Parameter']['Value']
             password = password_response['Parameter']['Value']
 
-            print("Successfully retrieved Piazza credentials from AWS parameter store")
+            logger.debug("Successfully retrieved Piazza credentials from Parameter Store")
             return username, password
         except ClientError as e:
-            print(f"Error retrieving parameter: {e}")
+            logger.exception("Failed to retrieve Piazza credentials from Parameter Store")
             raise
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            logger.exception("Unexpected error retrieving Piazza credentials)
             raise
 
+@logger.inject_lambda_context(log_event=True)
 def lambda_handler(event, context):
     # Handle CORS preflight requests
     if event.get('httpMethod') == 'OPTIONS':
@@ -79,18 +70,50 @@ def lambda_handler(event, context):
             },
             'body': ''
         }
+    
     try:
+        logger.info("Processing post-to-piazza request")
+        
         # Parse the request body from API Gateway
-        if event.get('body'):
-            body = json.loads(event['body'])
-        else:
-            body = {}
+        try:
+            if event.get('body'):
+                body = json.loads(event['body'])
+            else:
+                body = {}
+        except json.JSONDecodeError as e:
+            logger.exception("Failed to parse request body as JSON")
+            return {
+                'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': 'application/json'
+                },
+                'body': json.dumps({
+                    'success': False,
+                    'error': 'Invalid JSON in request body'
+                })
+            }
         
         # Extract parameters from the request body
         api_key = body.get("api_key")
-        EXPECTED_KEY = get_secret_api_key(SECRETS["API_KEY"])
+        try:
+            EXPECTED_KEY = get_secret_api_key(SECRETS["API_KEY"])
+        except Exception as e:
+            logger.exception("Failed to retrieve API key from Parameter Store")
+            return {
+                'statusCode': 500,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': 'application/json'
+                },
+                'body': json.dumps({
+                    'success': False,
+                    'error': 'Internal server error: Failed to validate API key'
+                })
+            }
 
         if api_key != EXPECTED_KEY:
+            logger.warning("Invalid API key provided")
             return {
                 'statusCode': 403,
                 'headers': {
@@ -104,20 +127,36 @@ def lambda_handler(event, context):
             }
         
         course = body.get("course")
-        network = course_to_network[course]
+        network = COURSE_TO_ID.get(course)
         post_type = body.get("post_type", "question")
         post_folders = body.get("post_folders")
         post_subject = body.get("post_subject")
         post_content = body.get("post_content")
         anonymous = bool(body.get("anonymous", "True"))
-        
-        print(f"Subject: {post_subject}")
-        print(f"Course: {course}")
-        print(f"Content: {post_content}")
-        print(f"Folders: {post_folders}")
-        print(f"Anonymous: {anonymous}")
+
+        # Check if course is in the mapping
+        if not network:
+            logger.warning("Course not found in COURSE_TO_ID mapping", extra={"course": course})
+            return {
+                'statusCode': 400,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': 'application/json'
+                },
+                'body': json.dumps({
+                    'success': False,
+                    'error': f'Course "{course}" not found'
+                })
+            }
 
         if not all([network, post_type, post_folders, post_subject, post_content]):
+            logger.warning("Missing required parameters", extra={
+                "has_network": bool(network),
+                "has_post_type": bool(post_type),
+                "has_post_folders": bool(post_folders),
+                "has_post_subject": bool(post_subject),
+                "has_post_content": bool(post_content)
+            })
             return {
                 'statusCode': 400,
                 'headers': {
@@ -130,9 +169,22 @@ def lambda_handler(event, context):
                 })
             }
 
-        username, password = get_piazza_credentials()
-        print(username)
-        print(password)
+        try:
+            username, password = get_piazza_credentials()
+        except Exception as e:
+            logger.exception("Failed to retrieve Piazza credentials")
+            return {
+                'statusCode': 500,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': 'application/json'
+                },
+                'body': json.dumps({
+                    'success': False,
+                    'error': 'Internal server error: Failed to retrieve credentials'
+                })
+            }
+        
         # p = Piazza()
         # p.user_login(email=username, password=password)
         # piazza_network = p.network(network)
@@ -140,6 +192,13 @@ def lambda_handler(event, context):
 
         # post_number = post_info['nr']
         # post_link = f"https://piazza.com/class/{network}/post/{post_number}"
+        
+        logger.info("Post creation request processed successfully", extra={
+            "course": course,
+            "course_id": network,
+            "post_type": post_type,
+            "anonymous": anonymous
+        })
         
         return {
             'statusCode': 200,
@@ -156,7 +215,7 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logger.exception("Unexpected error in lambda_handler")
         return {
             'statusCode': 500,
             'headers': {
@@ -165,23 +224,6 @@ def lambda_handler(event, context):
             },
             'body': json.dumps({
                 'success': False,
-                'error': str(e)
+                'error': 'Internal server error'
             })
         }
-
-if __name__ == "__main__":
-    # Test with a sample API Gateway event
-    test_event = {
-        'httpMethod': 'POST',
-        'body': json.dumps({
-            'api_key': 'test_key',
-            'course': 'CPSC 330',
-            'post_type': 'question',
-            'post_folders': ['hw1'],
-            'post_subject': 'Test Post',
-            'post_content': 'This is a test post',
-            'anonymous': True
-        })
-    }
-    result = lambda_handler(test_event, None)
-    print(json.dumps(result, indent=2))

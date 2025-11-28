@@ -1,5 +1,6 @@
 from aws_lambda_powertools.metrics import MetricUnit
 
+from config.constants import IGNORED_COURSE_IDS
 from config.logger import logger
 from config.metrics import metrics
 from scrapers.AbstractScraper import AbstractScraper
@@ -21,6 +22,14 @@ class FullScraper(AbstractScraper):
 
     def scrape_class(self, class_id):
         """Main scrape function"""
+        # Skip ignored courses
+        if class_id in IGNORED_COURSE_IDS:
+            logger.info("Skipping ignored course", extra={"course_id": class_id})
+            return {
+                "statusCode": 200,
+                "message": f"Skipped ignored course {class_id}"
+            }
+        
         logger.info("Starting full scrape", extra={"course_id": class_id})
         metrics.add_metric(name="ScrapeRuns", unit=MetricUnit.Count, value=1)
         processed_posts = 0

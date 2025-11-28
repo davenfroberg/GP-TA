@@ -5,6 +5,7 @@ from typing import List, Dict, Tuple, Optional
 from utils.clients import pinecone, openai, dynamo
 from utils.constants import CLASSES, PINECONE_INDEX_NAME
 from utils.utils import send_websocket_message
+from utils.logger import logger
 from enums.WebSocketType import WebSocketType
 
 CHUNKS_TO_USE = 9
@@ -412,9 +413,8 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
         if "NOT_ENOUGH_CONTEXT=" in after_body_buffer:
             context_value = after_body_buffer.split("NOT_ENOUGH_CONTEXT=")[1].strip().lower()
             needs_more_context = context_value.startswith("true")
-            print(f"DEBUG: after_body_buffer = {after_body_buffer}")
-            print(f"DEBUG: context_value = {context_value}")
-            print(f"DEBUG: needs_more_context = {needs_more_context}")
+            if needs_more_context:
+                logger.info("Not enough context detected", extra={"connection_id": connection_id, "class_id": class_id})
         
         send_websocket_message(apigw_management, connection_id, {
             "prompt": prompt,
@@ -433,7 +433,7 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
         })
         
     except Exception as e:
-        print(f"Error processing request: {e}")
+        logger.exception("Error processing general_query request", extra={"connection_id": connection_id, "class_id": class_id})
         send_websocket_message(apigw_management, connection_id, {
             "message": "An error occurred while processing your request. Please try again later.",
             "type": WebSocketType.CHUNK.value

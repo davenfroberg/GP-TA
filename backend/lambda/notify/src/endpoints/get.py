@@ -1,34 +1,60 @@
 import boto3
 import json
 from utils.constants import NOTIFICATIONS_TABLE_NAME
+from utils.logger import logger
+
 def get_notifications_from_dynamo():
     dynamo = boto3.resource('dynamodb')
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
 
     items = []
-    response = table.scan()
+    page_count = 0
+    
+    logger.info("Fetching notifications from DynamoDB")
+    try:
+        response = table.scan()
 
-    # handle pagination
-    while True:
-        for entry in response.get('Items', []):
-            items.append({
-                "query": entry.get("query"),
-                "course_name": entry.get("course_display_name")
-            })
+        # handle pagination
+        while True:
+            page_count += 1
+            for entry in response.get('Items', []):
+                items.append({
+                    "query": entry.get("query"),
+                    "course_name": entry.get("course_display_name")
+                })
 
-        # check for more pages
-        if 'LastEvaluatedKey' not in response:
-            break
+            # check for more pages
+            if 'LastEvaluatedKey' not in response:
+                break
 
-        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+            response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+        
+        logger.info("Successfully fetched notifications from DynamoDB", extra={
+            "notification_count": len(items),
+            "pages_scanned": page_count
+        })
+    except Exception as e:
+        logger.exception("Failed to fetch notifications from DynamoDB")
+        raise
+    
     return items
 
 def get_all_notifications():
-    items = get_notifications_from_dynamo()
-    return {
-            'statusCode': 200,
+    try:
+        items = get_notifications_from_dynamo()
+        return {
+                'statusCode': 200,
+                'headers': {
+                    'Content-Type': 'application/json',
+                },
+                'body': json.dumps(items)
+            }
+    except Exception as e:
+        logger.exception("Failed to get all notifications")
+        return {
+            'statusCode': 500,
             'headers': {
                 'Content-Type': 'application/json',
             },
-            'body': json.dumps(items)
+            'body': json.dumps({'error': 'Internal server error'})
         }

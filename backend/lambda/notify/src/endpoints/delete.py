@@ -1,6 +1,7 @@
 import boto3
 import json
 from utils.constants import NOTIFICATIONS_TABLE_NAME, SENT_TABLE_NAME, CLASSES
+from utils.logger import logger
 from boto3.dynamodb.conditions import Key
 dynamo = boto3.resource('dynamodb')
 
@@ -9,7 +10,16 @@ def delete_sent_notifications(user_query, course_id):
     table = dynamo.Table(SENT_TABLE_NAME)
     pk = f"{course_id}#{user_query}"
     
+    logger.info("Deleting sent notifications", extra={
+        "course_id": course_id,
+        "user_query": user_query,
+        "pk": pk
+    })
+    
     try:
+        deleted_count = 0
+        page_count = 0
+        
         # Query to get all items with this PK
         response = table.query(
             KeyConditionExpression=Key("course_id#query").eq(pk),
@@ -18,6 +28,7 @@ def delete_sent_notifications(user_query, course_id):
         
         # Delete all items with pagination
         while True:
+            page_count += 1
             items = response.get('Items', [])
             
             # Batch delete items
@@ -30,6 +41,7 @@ def delete_sent_notifications(user_query, course_id):
                                 'chunk_id': item['chunk_id']
                             }
                         )
+                        deleted_count += 1
             
             # Check for more pages
             if 'LastEvaluatedKey' not in response:
@@ -41,10 +53,18 @@ def delete_sent_notifications(user_query, course_id):
                 ExclusiveStartKey=response['LastEvaluatedKey']
             )
         
-        print(f"Deleted all sent notifications for course_id={course_id}, query='{user_query}'")
+        logger.info("Successfully deleted sent notifications", extra={
+            "course_id": course_id,
+            "user_query": user_query,
+            "deleted_count": deleted_count,
+            "pages_processed": page_count
+        })
         
     except Exception as e:
-        print(f"Error deleting sent notifications: {str(e)}")
+        logger.exception("Error deleting sent notifications", extra={
+            "course_id": course_id,
+            "user_query": user_query
+        })
         raise
 
 
@@ -56,12 +76,44 @@ def delete_notification(event):
         'Content-Type': 'application/json'
     }
     
-    try:        
-        params = event.get('queryStringParameters', {})
+    try:
+        logger.info("Processing delete notification request")
+        
+        params = event.get('queryStringParameters') or {}
 
         user_query = params.get('user_query', '')
         course_display_name = params.get('course_display_name', '')
-        course_id = CLASSES[course_display_name.lower().replace(" ", "")]
+        
+        if not user_query or not course_display_name:
+            logger.warning("Missing required query parameters", extra={
+                "has_user_query": bool(user_query),
+                "has_course_display_name": bool(course_display_name)
+            })
+            return {
+                'statusCode': 400,
+                'headers': headers,
+                'body': json.dumps({'error': 'user_query and course_display_name are required'})
+            }
+        
+        course_key = course_display_name.lower().replace(" ", "")
+        if course_key not in CLASSES:
+            logger.warning("Course not found in CLASSES mapping", extra={
+                "course_display_name": course_display_name,
+                "course_key": course_key
+            })
+            return {
+                'statusCode': 400,
+                'headers': headers,
+                'body': json.dumps({'error': f'Course "{course_display_name}" not found'})
+            }
+        
+        course_id = CLASSES[course_key]
+        
+        logger.info("Deleting notification", extra={
+            "user_query": user_query,
+            "course_display_name": course_display_name,
+            "course_id": course_id
+        })
         
         table.delete_item(
             Key={
@@ -72,6 +124,12 @@ def delete_notification(event):
 
         delete_sent_notifications(user_query, course_id)
         
+        logger.info("Successfully deleted notification", extra={
+            "user_query": user_query,
+            "course_id": course_id,
+            "course_display_name": course_display_name
+        })
+        
         return {
             'statusCode': 200,
             'headers': headers,
@@ -79,7 +137,7 @@ def delete_notification(event):
         }
 
     except json.JSONDecodeError as e:
-        print(f"JSON decode error: {str(e)}")
+        logger.exception("JSON decode error in delete_notification")
         return {
             'statusCode': 400,
             'headers': headers,
@@ -87,12 +145,11 @@ def delete_notification(event):
         }
     
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logger.exception("Error deleting notification")
         return {
             'statusCode': 500,
             'headers': headers,
             'body': json.dumps({
-                'error': 'Internal server error',
-                'details': str(e)
+                'error': 'Internal server error'
             })
         }

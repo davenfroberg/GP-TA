@@ -3,6 +3,7 @@ import re
 from typing import Dict
 from botocore.exceptions import ClientError
 from utils.constants import QUERY_PATTERNS
+from utils.logger import logger
 
 def get_secret_api_key(client, secret_name: str) -> str:
     """Retrieve API key from AWS Parameter Store."""
@@ -13,9 +14,10 @@ def get_secret_api_key(client, secret_name: str) -> str:
         )
         return response['Parameter']['Value']
     except ClientError as e:
+        logger.exception("Failed to retrieve credentials from Parameter Store", extra={"secret_name": secret_name})
         raise RuntimeError(f"Failed to retrieve credentials from Parameter Store: {e}")
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        logger.exception("Unexpected error retrieving secret", extra={"secret_name": secret_name})
         raise
 
 def send_websocket_message(apigw_management, connection_id: str, message_data: Dict) -> None:
@@ -26,7 +28,10 @@ def send_websocket_message(apigw_management, connection_id: str, message_data: D
             ConnectionId=connection_id
         )
     except Exception as e:
-        print(f"Error sending WebSocket message: {e}")
+        logger.exception("Error sending WebSocket message", extra={
+            "connection_id": connection_id,
+            "message_type": message_data.get("type")
+        })
         raise
 
 def normalize_query(query: str) -> str:

@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 from utils.constants import CLASSES, POSTS_TABLE_NAME
 from utils.utils import send_websocket_message
 from utils.clients import openai, apigw
+from utils.logger import logger
 from typing import Dict
 from enums.WebSocketType import WebSocketType
 
@@ -91,13 +92,13 @@ def get_recent_summaries(class_id: str, days: int = 2) -> list[dict]:
                     ExpressionAttributeValues={':val': True}
                 )
             except ClientError as e:
-                print(f"[WARN] Failed to update read flag for {key['post_id']}: {e}")
+                logger.warning("Failed to update read flag", extra={"post_id": key['post_id'], "course_id": key['course_id']})
 
         summaries.sort(key=lambda x: x['updated'], reverse=True)
         return summaries
         
     except Exception as e:
-        print(f"[ERROR] Failed to fetch summaries for {class_id}: {e}")
+        logger.exception("Failed to fetch summaries", extra={"class_id": class_id})
         return []
 
 
@@ -175,7 +176,7 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
                 })
         
     except Exception as e:
-        print(f"Error processing request: {e}")
+        logger.exception("Error processing summarize request", extra={"connection_id": connection_id, "class_id": class_id})
         send_websocket_message(apigw_management, connection_id, {
             "message": "An error occurred while processing your request. Please try again later.",
             "type": WebSocketType.CHUNK.value
