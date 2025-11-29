@@ -417,7 +417,7 @@ function MessageBubble({
               <span className="transition-transform duration-200" style={{ transform: isCitationsExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
                 ▶
               </span>
-              <span>Related Piazza threads ({citations?.length ?? 0})</span>
+              <span>Related Piazza threads</span>
             </button>
             {isCitationsExpanded && (
               <div className="space-y-1">
