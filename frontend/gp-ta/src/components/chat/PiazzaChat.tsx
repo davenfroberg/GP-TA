@@ -416,7 +416,7 @@ export default function PiazzaChat() {
         break;
       case "citations":
         if (data.citations && currentAssistantIdRef.current.has(tabId)) {
-          addCitationsToAssistantMessage(tabId, data.citations);
+          addCitationsToAssistantMessage(tabId, data.citations, data.citation_map);
         }
         break;
     }
@@ -592,7 +592,7 @@ export default function PiazzaChat() {
     });
   }, [setTabs]);
 
-  const addCitationsToAssistantMessage = useCallback((tabId: number, citations: Citation[]) => {
+  const addCitationsToAssistantMessage = useCallback((tabId: number, citations: Citation[], citationMap?: Record<number, Citation>) => {
     setTabs(prev => {
       const assistantId = currentAssistantIdRef.current.get(tabId);
       return prev.map(tab => {
@@ -600,7 +600,7 @@ export default function PiazzaChat() {
         
         const updatedMessages = tab.messages.map(m =>
           m.role === "assistant" && m.id === assistantId
-            ? { ...m, citations }
+            ? { ...m, citations, citationMap }
             : m
         );
         

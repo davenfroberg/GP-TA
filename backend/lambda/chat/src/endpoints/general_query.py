@@ -169,17 +169,19 @@ class ContextRetriever:
         )
         return [item['chunk_text'] for item in response.get('Items', [])]
     
-    def get_context_from_chunks(self, top_chunks: List[Dict], prioritize_instructor: bool) -> List[Tuple[str, str]]:
-        """Retrieve context for all chunks based on their types."""
+    def get_context_from_chunks(self, top_chunks: List[Dict], prioritize_instructor: bool) -> List[Tuple[str, str, str, int]]:
+        """Retrieve context for all chunks based on their types.
+        Returns list of tuples: (chunk_date, context_text, root_id, top_chunk_index)"""
         all_context = []
         
-        for chunk in top_chunks:
+        for top_chunk_idx, chunk in enumerate(top_chunks):
             fields = chunk.get('fields', chunk)
             chunk_id = chunk['_id']
             chunk_date = fields['date']
             blob_id = fields['blob_id']
             chunk_type = fields.get('type')
             parent_id = fields.get('parent_id')
+            root_id = fields.get('root_id')
             
             # Route to appropriate context retriever
             if chunk_type in ['i_answer', 's_answer', 'answer']:
@@ -191,12 +193,12 @@ class ContextRetriever:
             else:
                 new_context = self.get_fallback_context(parent_id, chunk_id)
             
-            # Add context with date
+            # Add context with date, root_id, and the index of the top_chunk it came from
             if isinstance(new_context, str):
-                all_context.append((chunk_date, new_context))
+                all_context.append((chunk_date, new_context, root_id, top_chunk_idx))
             else:
                 for ctx in new_context:
-                    all_context.append((chunk_date, ctx))
+                    all_context.append((chunk_date, ctx, root_id, top_chunk_idx))
         
         return all_context
 
@@ -209,13 +211,33 @@ def get_context_retriever():
     return _context_retriever
 
 
-def format_context(context_chunks: List[Tuple[str, str]]) -> str:
-    """Format context chunks into a readable string with relevance ranking."""
+def format_context(context_chunks: List[Tuple[str, str, str, int]], citation_map: Dict[str, Dict[str, str]] = None, post_to_post_number: Dict[str, str] = None) -> str:
+    """Format context chunks into a readable string with relevance ranking and citation post numbers.
+    citation_map maps post_number to citation, post_to_post_number maps root_id to post_number."""
     formatted = ["===== CONTEXT START ====="]
     
-    for i, (chunk_date, chunk_text) in enumerate(context_chunks):
+    # Add a summary of available citations at the start
+    if citation_map:
+        # Sort citation keys (post numbers as strings) numerically
+        available_citations = sorted(citation_map.keys(), key=lambda x: int(x) if x.isdigit() else 0)
+        if available_citations:
+            citation_list = ", ".join([f"@{num}" for num in available_citations])
+            formatted.append(f"Available citations: {citation_list}")
+            formatted.append("")
+    
+    for i, (chunk_date, chunk_text, root_id, top_chunk_idx) in enumerate(context_chunks):
+        citation_info = ""
+        
+        # only show citation info if the post has a post_number
+        if post_to_post_number and root_id in post_to_post_number:
+            post_number = post_to_post_number[root_id]
+            if citation_map and post_number in citation_map:
+                citation = citation_map[post_number]
+                post_title = citation.get('title', 'Piazza Post')
+                citation_info = f" [From Post @{post_number}: \"{post_title}\"]"
+        
         formatted.extend([
-            f"[Relevance Rank: {i+1}/{len(context_chunks)}] [Updated date: {chunk_date}]",
+            f"[Relevance Rank: {i+1}/{len(context_chunks)}] [Updated date: {chunk_date}]{citation_info}",
             f"---\n{chunk_text}\n---"
         ])
     
@@ -275,6 +297,57 @@ def format_citations(top_chunks: List[Dict]) -> List[Dict[str, str]]:
     return citations
 
 
+def create_citation_map(context_chunks: List[Tuple[str, str, str, int]], top_chunks: List[Dict], class_id: str) -> Tuple[Dict[str, Dict[str, str]], Dict[str, str]]:
+    """Create a mapping from post_number to citation metadata, and from root_id to post_number. Only create citations for posts that have a post_number."""
+    citation_map: Dict[str, Dict[str, str]] = {}
+    post_to_post_number: Dict[str, str] = {}
+    seen_root_ids: set = set()
+    
+    if not top_chunks or not context_chunks:
+        return citation_map, post_to_post_number
+    
+    # collect all unique posts from top_chunks
+    for chunk in top_chunks:
+        fields = chunk.get('fields', chunk)
+        root_id = fields.get('root_id')
+        
+        # skip if no root_id or already processed this post
+        if not root_id or root_id in seen_root_ids:
+            continue
+        
+        seen_root_ids.add(root_id)
+        
+        post_title = fields.get('title', 'Piazza Post')
+        post_number_raw = fields.get('root_post_num', '')
+        
+        # skip if no post_number or welcome post - we don't cite these
+        if not post_number_raw or post_title == "Welcome to Piazza!":
+            continue
+        
+        # convert post_number to string, handling int, float, or string
+        if isinstance(post_number_raw, (int, float)):
+            post_number = str(int(post_number_raw))
+        else:
+            post_number = str(post_number_raw).strip()
+        
+        if not post_number:
+            continue
+        
+        post_url = f"https://piazza.com/class/{class_id}/post/{root_id}"
+        
+        citation: Dict[str, str] = {
+            "title": post_title,
+            "url": post_url,
+            "post_number": post_number
+        }
+        
+        # map root_id to post_number and store citation
+        post_to_post_number[root_id] = post_number
+        citation_map[post_number] = citation
+    
+    return citation_map, post_to_post_number
+
+
 def create_system_prompt() -> str:
     """Create the system prompt for the OpenAI model."""
     now_pacific = datetime.now(ZoneInfo("America/Los_Angeles"))
@@ -292,6 +365,21 @@ def create_system_prompt() -> str:
         "- The order of your metadata chunks should always be in the order 1. BODY_START, 2. BODY_END, 3. NOT_ENOUGH_CONTEXT\n"
         "- Put all multi-line code chunks in markdown code blocks, and all inline code in markdown inline code blocks.\n\n"
         
+        "## Citation Requirements (CRITICAL)\n"
+        "- When you reference information from the context, you MUST include an in-line citation marker in the format @<post_number> where <post_number> is the actual Piazza post number.\n"
+        "- IMPORTANT: Only cite posts that have a \"From Post @<post_number>\" label in the context. If a context chunk does NOT have this label, it means the post has no post number - DO NOT cite it and DO NOT add any explanation or placeholder text.\n"
+        "- If there is no post number available, simply do not include a citation. Do NOT write things like \"@—\" or \"(no post number provided)\" or any other placeholder text.\n"
+        "- Citations use the actual post number from Piazza, not sequential numbers. Format: @123, @456, etc.\n"
+        "- If multiple context chunks come from the same post (indicated by \"From Post @<post_number>\"), you MUST use the SAME citation @<post_number> for all of them.\n"
+        "- Each unique post has ONE citation. If you see \"From Post @123\" in multiple context chunks, they all use @123.\n"
+        "- Place citation markers immediately after the sentence or phrase that uses information from that source.\n"
+        "- DO NOT repeat the same citation multiple times in a row. If you reference the same post multiple times in one sentence, use the citation ONCE at the end: \"Info from post @123 and more info from same post.\" NOT \"Info @123 and more info @123 @123.\"\n"
+        "- You can use multiple citations in the same sentence if information comes from multiple DIFFERENT posts: @123 @456.\n"
+        "- Example: \"According to the course materials @123, students should submit assignments by Friday @456.\" If both pieces of info are from the same post, use just @123 once: \"According to the course materials, students should submit assignments by Friday @123.\"\n"
+        "- DO NOT include citations in code blocks or inline code.\n"
+        "- Only use citation post numbers that appear in the context (check the \"From Post @<post_number>\" labels). Do not make up post numbers.\n"
+        "- If a context chunk does not have a \"From Post @<post_number>\" label, that means it cannot be cited - simply do not include a citation. Do not add placeholder citations or explanatory text.\n\n"
+        
         "## Context Usage Rules (CRITICAL)\n"
         "- ONLY use context that is DIRECTLY relevant to answering the specific question asked.\n"
         "- If a piece of context is tangentially related but doesn't help answer the question, IGNORE it completely.\n"
@@ -302,8 +390,8 @@ def create_system_prompt() -> str:
         "- Use exclusively the context provided to answer the question and ONLY the context. Do not use your training data to answer the question."
         
         "## Insufficient Context Handling\n"
-        "- If the context contains some relevant information but not enough for a complete answer, provide what you can using ONLY the context. Set NOT_ENOUGH_CONTEXT=true.\n"
-        "- If there is absolutely no relevant information, tell the user there is not enough information on Piazza to answer their question. Set NOT_ENOUGH_CONTEXT=true.\n"
+        "- If the context contains some relevant information but not enough for a complete answer, provide what you can using ONLY the context. Do not ask them to provide you more context. Set NOT_ENOUGH_CONTEXT=true.\n"
+        "- If there is absolutely no relevant information, tell the user there is not enough information on Piazza to answer their question. Do not ask them to provide you more context. Set NOT_ENOUGH_CONTEXT=true.\n"
         "- DO NOT HALLUCINATE or use information outside the provided context.\n\n"
         
         "## Date Handling\n"
@@ -342,8 +430,9 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
         context_retriever = get_context_retriever()
         context_chunks = context_retriever.get_context_from_chunks(top_chunks, prioritize_instructor)
         
-        # Format context and create prompt
-        context = format_context(context_chunks)
+        # Create citation map and format context with citation post numbers
+        citation_map, post_to_post_number = create_citation_map(context_chunks, top_chunks, class_id)
+        context = format_context(context_chunks, citation_map, post_to_post_number)
         prompt = f"Context:\n{context}\n\nUser's Question: {query}\nAnswer:"
         
         # Send progress update
@@ -443,9 +532,11 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
             "type": "prompt"
         })
         
-        # Send citations
+        # Send citations with mapping
+        citations = format_citations(top_chunks)
         send_websocket_message(apigw_management, connection_id, {
-            "citations": format_citations(top_chunks),
+            "citations": citations,
+            "citation_map": citation_map,  # Map citation numbers to citation objects
             "type": WebSocketType.CITATIONS.value
         })
         

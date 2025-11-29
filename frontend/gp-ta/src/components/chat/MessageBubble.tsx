@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo, useRef } from "react";
+import { useState, useMemo, memo } from "react";
 import he from "he";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -17,13 +17,11 @@ interface MessageBubbleProps extends Message {
 // Memoized Citation Component
 const CitationItem = memo(({ 
   citation, 
-  index, 
   isVisible, 
   shouldAnimate,
   themeClasses 
 }: {
   citation: any;
-  index: number;
   isVisible: boolean;
   shouldAnimate: boolean;
   themeClasses: any;
@@ -59,12 +57,126 @@ const CitationItem = memo(({
 
 CitationItem.displayName = 'CitationItem';
 
+// In-line Citation Component
+const InlineCitation = memo(({ 
+  postNumber, 
+  citation, 
+  themeClasses 
+}: {
+  postNumber: string;
+  citation?: any;
+  themeClasses: any;
+}) => {
+  if (!citation) {
+    return <span className="text-gray-400">@{postNumber}</span>;
+  }
+  
+  const citationUrl = citation?.url;
+  
+  if (!citationUrl) {
+    return <span className="text-gray-400">@{postNumber}</span>;
+  }
+  
+  // Ensure URL is absolute and valid
+  let absoluteUrl = citationUrl;
+  if (!absoluteUrl.startsWith('http://') && !absoluteUrl.startsWith('https://')) {
+    absoluteUrl = `https://${absoluteUrl}`;
+  }
+  
+  // Validate URL before rendering
+  if (!absoluteUrl || absoluteUrl === '#' || absoluteUrl === window.location.href) {
+    return <span className="text-gray-400">@{postNumber}</span>;
+  }
+  
+  return (
+    <a
+      href={absoluteUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => {
+        // Stop event propagation to prevent any parent handlers from interfering
+        e.stopPropagation();
+        // Don't prevent default - let the browser handle navigation
+      }}
+      style={{ pointerEvents: 'auto', zIndex: 10 }}
+      className={`inline-flex items-center justify-center min-w-fit h-5 px-1.5 mx-0.5 text-xs font-medium rounded-sm align-baseline transition-all hover:scale-110 cursor-pointer no-underline ${
+        themeClasses.inlineCitation || 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800'
+      }`}
+      title={citation.title || `Post @${postNumber}`}
+    >
+      @{postNumber}
+    </a>
+  );
+});
+
+InlineCitation.displayName = 'InlineCitation';
+
+// Process text to replace citation markers with markdown links
+// Note: This runs before markdown parsing, so we need to avoid processing citations
+// inside code blocks. We'll do a simple check to avoid common code block patterns.
+function processCitations(text: string, citationMap?: Record<string, any>): string {
+  if (!citationMap) return text;
+  
+  // Split text by code blocks to avoid processing citations inside them
+  const codeBlockRegex = /```[\s\S]*?```|`[^`]+`/g;
+  const parts: Array<{ text: string; isCode: boolean }> = [];
+  let lastIndex = 0;
+  let match;
+  
+  // Find all code blocks
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    // Add text before code block
+    if (match.index > lastIndex) {
+      parts.push({ text: text.substring(lastIndex, match.index), isCode: false });
+    }
+    // Add code block
+    parts.push({ text: match[0], isCode: true });
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push({ text: text.substring(lastIndex), isCode: false });
+  }
+  
+  // Process only non-code parts
+  return parts.map(part => {
+    if (part.isCode) {
+      return part.text; // Keep code blocks as-is
+    }
+    
+    // Match citation patterns like @123, @456, etc.
+    // Format: @ followed by one or more digits
+    return part.text.replace(/@(\d+)/g, (match, postNum, offset, string) => {
+      // Check if this is part of an email address or other @ usage
+      const before = string.substring(Math.max(0, offset - 1), offset);
+      // If preceded by a letter or digit, it might be part of an email, skip it
+      if (before && /[a-zA-Z0-9]/.test(before)) {
+        return match;
+      }
+      
+      // Look up citation by post number (as string key)
+      const citation = citationMap[postNum];
+      
+      if (citation && citation.url) {
+        // Replace with a markdown link using a special URL format
+        // Format: @123 -> [@123](#citation-123) - we'll detect this in the link handler
+        return `[@${postNum}](#citation-${postNum})`;
+      }
+      
+      // Citation not found - return plain text without link
+      return match;
+    });
+  }).join('');
+}
+
 function MessageBubble({ 
   id,
   role, 
   text, 
   course, 
   citations, 
+  citationMap,
   needsMoreContext,
   notificationCreated,
   notificationLoading,
@@ -73,11 +185,14 @@ function MessageBubble({
   onNotifyMe,
   onPostToPiazza
 }: MessageBubbleProps) {
-  const [visibleCitations, setVisibleCitations] = useState<number>(0);
-  const [shouldAnimateCitations, setShouldAnimateCitations] = useState<boolean>(false);
-  const previousCitationsLengthRef = useRef<number>(0);
-  const hasAnimatedRef = useRef<boolean>(false);
+  const [isCitationsExpanded, setIsCitationsExpanded] = useState<boolean>(false);
   const isUser = role === "user";
+
+  // Process text to handle citations
+  const processedText = useMemo(() => {
+    if (!citationMap || role === "user") return text;
+    return processCitations(text, citationMap);
+  }, [text, citationMap, role]);
 
   // Memoize markdown components to prevent recreation on every render
   const markdownComponents = useMemo(() => ({
@@ -128,13 +243,59 @@ function MessageBubble({
     h3({ children }: any) {
       return <h3 className="text-sm font-bold mb-1">{children}</h3>;
     },
-    a({ href, children }: any) {
+    a({ href, children, ...props }: any) {
+      // Handle empty or invalid hrefs first
+      if (!href || href === '#' || href.trim() === '') {
+        // Check if this might be a citation that wasn't processed correctly
+        const textContent = typeof children === 'string' ? children : 
+                           (Array.isArray(children) ? children.join('') : String(children));
+        const citationMatch = textContent.match(/^@(\d+)$/);
+        if (citationMatch && citationMap) {
+          const postNumber = citationMatch[1];
+          const citation = (citationMap as Record<string, any>)?.[postNumber];
+          if (citation && citation.url) {
+            return (
+              <InlineCitation
+                postNumber={postNumber}
+                citation={citation}
+                themeClasses={themeClasses}
+              />
+            );
+          }
+        }
+        // Not a citation, just return the text without a link
+        return <span className={themeClasses.link}>{children}</span>;
+      }
+      
+      // Check if this is a citation link (using #citation-<post_number> format)
+      if (href && href.startsWith('#citation-')) {
+        const postNumber = href.replace('#citation-', '');
+        const citation = (citationMap as Record<string, any>)?.[postNumber];
+        
+        if (citation?.url) {
+          return (
+            <InlineCitation
+              postNumber={postNumber}
+              citation={citation}
+              themeClasses={themeClasses}
+            />
+          );
+        }
+        return <span className="text-gray-400">@{postNumber}</span>;
+      }
+      
+      // For regular links, ensure href is valid
+      if (href === window.location.href) {
+        return <span className={themeClasses.link}>{children}</span>;
+      }
+      
       return (
         <a 
           href={href} 
-          target="_blank" 
+          target="_blank"
           rel="noopener noreferrer"
           className={`underline ${themeClasses.link}`}
+          {...props}
         >
           {children}
         </a>
@@ -161,51 +322,8 @@ function MessageBubble({
         </td>
       );
     },
-  }), [themeClasses]);
+  }), [themeClasses, citationMap]);
 
-  // Enhanced citation animation effect
-  useEffect(() => {
-    if (!citations?.length) {
-      setVisibleCitations(0);
-      setShouldAnimateCitations(false);
-      hasAnimatedRef.current = false;
-      previousCitationsLengthRef.current = 0;
-      return;
-    }
-    
-    const currentLength = citations.length;
-    const previousLength = previousCitationsLengthRef.current;
-    
-    const isFirstTimeReceived = previousLength === 0 && currentLength > 0;
-    const hasNewCitations = currentLength > previousLength;
-    
-    if (isFirstTimeReceived || (hasNewCitations && !hasAnimatedRef.current)) {
-      setShouldAnimateCitations(true);
-      setVisibleCitations(0);
-      hasAnimatedRef.current = true;
-      
-      const timeoutId = setTimeout(() => {
-        let currentVisible = 0;
-        const interval = setInterval(() => {
-          currentVisible += 1;
-          setVisibleCitations(currentVisible);
-          
-          if (currentVisible >= currentLength) {
-            clearInterval(interval);
-          }
-        }, 75);
-        
-        return () => clearInterval(interval);
-      }, 50);
-      
-      previousCitationsLengthRef.current = currentLength;
-      return () => clearTimeout(timeoutId);
-    } else {
-      setShouldAnimateCitations(false);
-      setVisibleCitations(currentLength);
-      previousCitationsLengthRef.current = currentLength;
-    }
-  }, [citations?.length]);
 
   const bubbleClasses = useMemo(() => 
     `break-words p-3 rounded-xl shadow-sm border relative group ${
@@ -229,7 +347,7 @@ function MessageBubble({
               remarkPlugins={[remarkGfm]}
               components={markdownComponents}
             >
-              {text}
+              {processedText}
             </ReactMarkdown>
           </div>
           {isUser && course && (
@@ -289,22 +407,31 @@ function MessageBubble({
           </div>
         )}
         
-        {/* Citations */}
+        {/* Citations - Collapsible */}
         {!isUser && (citations?.length ?? 0) > 0 && (
-          <div className="mt-2 space-y-1 w-full">
-            <div className={`text-xs ${themeClasses.label} mb-1 opacity-70`}>
-              Related Piazza threads:
-            </div>
-            {(citations ?? []).map((citation, index) => (
-              <CitationItem
-                key={`${citation.url}-${index}`}
-                citation={citation}
-                index={index}
-                isVisible={index < visibleCitations}
-                shouldAnimate={shouldAnimateCitations}
-                themeClasses={themeClasses}
-              />
-            ))}
+          <div className="mt-2 w-full">
+            <button
+              onClick={() => setIsCitationsExpanded(!isCitationsExpanded)}
+              className={`flex items-center gap-2 text-xs ${themeClasses.label} mb-1 opacity-70 hover:opacity-100 transition-opacity cursor-pointer`}
+            >
+              <span className="transition-transform duration-200" style={{ transform: isCitationsExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                ▶
+              </span>
+              <span>Related Piazza threads ({citations?.length ?? 0})</span>
+            </button>
+            {isCitationsExpanded && (
+              <div className="space-y-1">
+                {(citations ?? []).map((citation, index) => (
+                  <CitationItem
+                    key={`${citation.url}-${index}`}
+                    citation={citation}
+                    isVisible={true}
+                    shouldAnimate={false}
+                    themeClasses={themeClasses}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -323,6 +450,7 @@ export default memo(MessageBubble, (prevProps, nextProps) => {
     prevProps.notificationCreated === nextProps.notificationCreated &&
     prevProps.notificationLoading === nextProps.notificationLoading &&
     JSON.stringify(prevProps.citations) === JSON.stringify(nextProps.citations) &&
+    JSON.stringify(prevProps.citationMap) === JSON.stringify(nextProps.citationMap) &&
     prevProps.themeClasses.userBubble === nextProps.themeClasses.userBubble &&
     prevProps.themeClasses.assistantBubble === nextProps.themeClasses.assistantBubble &&
     prevProps.themeClasses.inlineCode === nextProps.themeClasses.inlineCode &&

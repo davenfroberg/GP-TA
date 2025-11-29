@@ -11,6 +11,7 @@ export interface Message {
   text: string;
   course?: string; 
   citations?: Citation[];
+  citationMap?: Record<string, Citation>; // Maps post numbers (as strings) to citation objects, e.g., "123" -> citation
   needsMoreContext?: boolean;
   notificationCreated?: boolean;
   notificationLoading?: boolean;
