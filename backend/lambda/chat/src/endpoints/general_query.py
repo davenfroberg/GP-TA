@@ -431,7 +431,7 @@ def chat(connection_id: str, domain_name: str, stage: str, query: str, class_nam
             context_value = after_body_buffer.split("NOT_ENOUGH_CONTEXT=")[1].strip().lower()
             needs_more_context = context_value.startswith("true")
             if needs_more_context:
-                logger.info("Not enough context detected", extra={"connection_id": connection_id, "class_id": class_id})
+                logger.debug("Not enough context detected", extra={"connection_id": connection_id, "class_id": class_id})
         
         send_websocket_message(apigw_management, connection_id, {
             "prompt": prompt,

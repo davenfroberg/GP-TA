@@ -97,7 +97,7 @@ export default function TabBar({
       <button
         onClick={onNotificationsClick}
         className={`px-3 py-2 mr-2 relative ${themeClasses.inactiveTab.includes('text-slate-300') ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'} transition-colors cursor-pointer`}
-        title="View active notifications"
+        title="View followed topics"
       >
         <Bell className="w-4 h-4" />
         {hasUnseenNotifications && (

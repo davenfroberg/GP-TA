@@ -80,24 +80,10 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
       // Update state - remove only the notification with the exact matching ID
       // Use functional update to ensure we're working with current state
       setNotifications(prev => {
-        console.log('Before delete - current notifications:', prev.map(n => ({ id: n.id, query: n.query, course: n.course_name })));
-        
-        // Filter out only the notification with matching ID - be very explicit
+        // Filter out only the notification with matching ID
         const updated = prev.filter((n: Notification) => {
           const shouldKeep = n.id !== notificationId;
-          if (!shouldKeep) {
-            console.log('Removing notification:', { id: n.id, query: n.query, course: n.course_name });
-          }
           return shouldKeep;
-        });
-        
-        console.log('After delete - updated notifications:', updated.map(n => ({ id: n.id, query: n.query, course: n.course_name })));
-        console.log('Delete operation:', { 
-          deletedId: notificationId, 
-          beforeCount: prev.length,
-          afterCount: updated.length,
-          deletedQuery: notificationToDelete.query,
-          deletedCourse: notificationToDelete.course_name
         });
         
         // Only update localStorage if we actually removed something
@@ -154,7 +140,7 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
         <div className="flex items-center justify-between p-6 border-b border-white/10">
           <div className="flex items-center gap-3">
             <Bell className="w-6 h-6" />
-            <h2 className="text-2xl font-bold">Notifications</h2>
+            <h2 className="text-2xl font-bold">Followed Topics</h2>
           </div>
           <button
             onClick={onClose}
@@ -173,9 +159,9 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
           ) : notifications.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <Bell className="w-16 h-16 mb-4 opacity-30" />
-              <p className="text-lg opacity-60">No notifications active</p>
+              <p className="text-lg opacity-60">No followed topics</p>
               <p className="text-sm opacity-40 mt-2">
-                Create a notification by following the prompt after asking a question that has insufficient Piazza context.
+                Follow a topic by clicking the "Follow Topic" button after asking a question that has insufficient Piazza context. You can unfollow a topic at any time.
               </p>
             </div>
           ) : (
@@ -200,7 +186,7 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
                               ? 'opacity-50 cursor-not-allowed' 
                               : themeClasses.closeButton
                           }`}
-                          title="Delete notification"
+                          title="Unfollow topic"
                         >
                           {deletingIds.has(notification.id) ? (
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
