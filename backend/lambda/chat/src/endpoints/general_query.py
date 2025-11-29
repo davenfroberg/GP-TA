@@ -231,7 +231,9 @@ def format_citations(top_chunks: List[Dict]) -> List[Dict[str, str]]:
     if not top_chunks:
         return []
     
-    citations = []
+    # Keep citations ordered by first relevant appearance, but dedupe by post URL
+    citations: List[Dict[str, str]] = []
+    seen_keys = set()
     top_score = top_chunks[0]['_score']
     
     for chunk in top_chunks:
@@ -245,15 +247,30 @@ def format_citations(top_chunks: List[Dict]) -> List[Dict[str, str]]:
         # Skip generic welcome post
         if post_title == "Welcome to Piazza!":
             continue
+
+        is_relevant = chunk['_score'] >= CITATION_THRESHOLD_MULTIPLIER * top_score
+        if not is_relevant:
+          continue
         
-        citation = {"title": post_title, "url": post_url}
+        # Use (url, title) as our uniqueness key to avoid duplicates even if other
+        # metadata (like post_number) differs or is sometimes missing
+        key = (post_url, post_title)
+        if key in seen_keys:
+            # If we've already added this citation but the new chunk has a post_number
+            # and the existing one doesn't, upgrade the existing citation.
+            if post_number:
+                for existing in citations:
+                    if existing["url"] == post_url and existing["title"] == post_title and "post_number" not in existing:
+                        existing["post_number"] = int(post_number)
+                        break
+            continue
+
+        citation: Dict[str, str] = {"title": post_title, "url": post_url}
         if post_number:
             citation["post_number"] = int(post_number)
-            
-        is_relevant = chunk['_score'] >= CITATION_THRESHOLD_MULTIPLIER * top_score
-        
-        if citation not in citations and is_relevant:
-            citations.append(citation)
+
+        citations.append(citation)
+        seen_keys.add(key)
     
     return citations
 
