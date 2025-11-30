@@ -1,13 +1,21 @@
 from abc import ABC, abstractmethod
+
 import boto3
+from config.constants import (
+    CHUNKS_TABLE_NAME,
+    DIFFS_TABLE_NAME,
+    PINECONE_INDEX_NAME,
+    POSTS_TABLE_NAME,
+    SECRETS,
+)
 from config.logger import logger
-from scrapers.core.AWSParameterStore import AWSParameterStore
-from config.constants import CHUNKS_TABLE_NAME, POSTS_TABLE_NAME, DIFFS_TABLE_NAME, SECRETS, PINECONE_INDEX_NAME
-from scrapers.core.ChunkManager import ChunkManager
-from scrapers.core.PostManager import PostManager
-from scrapers.core.NotificationService import NotificationService
-from pinecone import Pinecone
 from piazza_api import Piazza
+from pinecone import Pinecone
+from scrapers.core.AWSParameterStore import AWSParameterStore
+from scrapers.core.ChunkManager import ChunkManager
+from scrapers.core.NotificationService import NotificationService
+from scrapers.core.PostManager import PostManager
+
 
 class AbstractScraper(ABC):
     def __init__(self):

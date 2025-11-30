@@ -1,31 +1,34 @@
+from functools import cache
+
 import boto3
-from functools import lru_cache
-from utils.constants import SECRETS, AWS_REGION_NAME
-from utils.utils import get_secret_api_key
 from openai import OpenAI
 from pinecone import Pinecone
+from utils.constants import AWS_REGION_NAME, SECRETS
+from utils.utils import get_secret_api_key
 
-@lru_cache(maxsize=None)
+
+@cache
 def dynamo():
     return boto3.resource("dynamodb")
 
-@lru_cache(maxsize=None)
+
+@cache
 def ssm_manager():
     return boto3.client("ssm", region_name=AWS_REGION_NAME)
 
-@lru_cache(maxsize=None)
+
+@cache
 def openai():
-    openai_api_key = get_secret_api_key(ssm_manager(), SECRETS['OPENAI'])
+    openai_api_key = get_secret_api_key(ssm_manager(), SECRETS["OPENAI"])
     return OpenAI(api_key=openai_api_key)
 
-@lru_cache(maxsize=None)
+
+@cache
 def pinecone():
-    pinecone_api_key = get_secret_api_key(ssm_manager(), SECRETS['PINECONE'])
+    pinecone_api_key = get_secret_api_key(ssm_manager(), SECRETS["PINECONE"])
     return Pinecone(api_key=pinecone_api_key, environment="us-west1-gcp")
 
-@lru_cache(maxsize=None)
+
+@cache
 def apigw(domain_name: str, stage: str):
-    return boto3.client(
-        "apigatewaymanagementapi",
-        endpoint_url=f"https://{domain_name}/{stage}"
-    )
+    return boto3.client("apigatewaymanagementapi", endpoint_url=f"https://{domain_name}/{stage}")

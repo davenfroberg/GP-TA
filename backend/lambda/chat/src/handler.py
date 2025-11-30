@@ -1,13 +1,13 @@
 import json
-from predict_intent import predict_intent # type: ignore ; b/c this is in lambda layer
-from endpoints import general_query, summarize, overview
-from utils.clients import apigw
-from utils.utils import send_websocket_message, normalize_query
-from utils.logger import logger
+
+from endpoints import general_query, overview, summarize
 from enums.Intent import Intent
 from enums.WebSocketType import WebSocketType
+from predict_intent import predict_intent  # type: ignore ; b/c this is in lambda layer
+from utils.clients import apigw, openai
+from utils.logger import logger
+from utils.utils import normalize_query, send_websocket_message
 
-from utils.clients import openai
 
 @logger.inject_lambda_context(log_event=False)  # Don't log full event to reduce log volume
 def lambda_handler(event, context):
@@ -18,7 +18,7 @@ def lambda_handler(event, context):
     connection_id = None
     domain_name = None
     stage = None
-    
+
     try:
         connection_id = event["requestContext"]["connectionId"]
         domain_name = event["requestContext"]["domainName"]
@@ -33,60 +33,83 @@ def lambda_handler(event, context):
         if not message:
             logger.warning("Missing message in request", extra={"connection_id": connection_id})
             raise ValueError("Message is required")
-        
+
         client = openai()
-        embedding_response = client.embeddings.create(
-            input=message,
-            model="text-embedding-3-small"
-        )
+        embedding_response = client.embeddings.create(input=message, model="text-embedding-3-small")
         embedding = embedding_response.data[0].embedding
-        
+
         intent = predict_intent(embedding)
-        logger.debug("Intent detected", extra={
-            "intent": intent,
-            "class_name": class_name,
-            "model": model
-        })
-        
+        logger.debug(
+            "Intent detected", extra={"intent": intent, "class_name": class_name, "model": model}
+        )
+
         normalized_query = normalize_query(message)
 
         match intent:
             case Intent.GENERAL.value:
-                return general_query.chat(connection_id, domain_name, stage, normalized_query, class_name, model, prioritize_instructor)
+                return general_query.chat(
+                    connection_id,
+                    domain_name,
+                    stage,
+                    normalized_query,
+                    class_name,
+                    model,
+                    prioritize_instructor,
+                )
             case Intent.SUMMARIZE.value:
-                return summarize.chat(connection_id, domain_name, stage, normalized_query, class_name, model, prioritize_instructor)
+                return summarize.chat(
+                    connection_id,
+                    domain_name,
+                    stage,
+                    normalized_query,
+                    class_name,
+                    model,
+                    prioritize_instructor,
+                )
             case Intent.OVERVIEW.value:
-                return overview.chat(connection_id, domain_name, stage, normalized_query, class_name, model, prioritize_instructor)
+                return overview.chat(
+                    connection_id,
+                    domain_name,
+                    stage,
+                    normalized_query,
+                    class_name,
+                    model,
+                    prioritize_instructor,
+                )
             case _:
-                logger.warning("Unknown intent", extra={"intent": intent, "connection_id": connection_id})
-                return {
-                    "statusCode": 200
-                }   
-        
-    except Exception as e:
-        logger.exception("Error in lambda_handler", extra={
-            "connection_id": connection_id,
-            "domain_name": domain_name,
-            "stage": stage
-        })
-        
+                logger.warning(
+                    "Unknown intent", extra={"intent": intent, "connection_id": connection_id}
+                )
+                return {"statusCode": 200}
+
+    except Exception:
+        logger.exception(
+            "Error in lambda_handler",
+            extra={"connection_id": connection_id, "domain_name": domain_name, "stage": stage},
+        )
+
         if domain_name and stage and connection_id:
             try:
                 apigw_management = apigw(domain_name, stage)
-                
-                send_websocket_message(apigw_management, connection_id, {
-                    "message": "An error occurred while processing your request. Please try again later.",
-                    "type": WebSocketType.CHUNK.value
-                })
 
-                send_websocket_message(apigw_management, connection_id, {
-                    "message": "Finished streaming",
-                    "type": WebSocketType.DONE.value
-                })
-            except Exception as ws_error:
-                logger.exception("Failed to send error message via WebSocket", extra={"connection_id": connection_id})
+                send_websocket_message(
+                    apigw_management,
+                    connection_id,
+                    {
+                        "message": "An error occurred while processing your request. Please try again later.",
+                        "type": WebSocketType.CHUNK.value,
+                    },
+                )
 
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": "Internal server error"})
-        }  
+                send_websocket_message(
+                    apigw_management,
+                    connection_id,
+                    {"message": "Finished streaming", "type": WebSocketType.DONE.value},
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to send error message via WebSocket",
+                    extra={"connection_id": connection_id},
+                )
+
+        return {"statusCode": 500, "body": json.dumps({"error": "Internal server error"})}

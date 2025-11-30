@@ -1,5 +1,4 @@
 from aws_lambda_powertools.metrics import MetricUnit
-
 from config.logger import logger
 from config.metrics import metrics
 from scrapers.FullScraper import FullScraper

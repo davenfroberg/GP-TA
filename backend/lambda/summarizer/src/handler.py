@@ -1,12 +1,11 @@
 import concurrent.futures
-from boto3.dynamodb.conditions import Attr
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from utils.constants import POSTS_TABLE_NAME, DIFFS_TABLE_NAME
-from utils.clients import openai, dynamo
 from aws_lambda_powertools.metrics import MetricUnit
-
+from boto3.dynamodb.conditions import Attr
+from utils.clients import dynamo, openai
+from utils.constants import DIFFS_TABLE_NAME, POSTS_TABLE_NAME
 from utils.logger import logger
 from utils.metrics import metrics
 
@@ -25,17 +24,17 @@ def lambda_handler(event, context):
     items_to_process = []
 
     response = posts_table.scan(
-        FilterExpression=Attr('last_major_update').gt(Attr('summary_last_updated'))
+        FilterExpression=Attr("last_major_update").gt(Attr("summary_last_updated"))
     )
 
-    items_to_process.extend(response['Items'])
+    items_to_process.extend(response["Items"])
 
-    while 'LastEvaluatedKey' in response:
+    while "LastEvaluatedKey" in response:
         response = posts_table.scan(
-            FilterExpression=Attr('last_major_update').gt(Attr('summary_last_updated')),
-            ExclusiveStartKey=response['LastEvaluatedKey']
+            FilterExpression=Attr("last_major_update").gt(Attr("summary_last_updated")),
+            ExclusiveStartKey=response["LastEvaluatedKey"],
         )
-        items_to_process.extend(response['Items'])
+        items_to_process.extend(response["Items"])
 
     total_posts = len(items_to_process)
     logger.info("Found posts requiring summarization", extra={"post_count": total_posts})
@@ -43,7 +42,7 @@ def lambda_handler(event, context):
     metrics.add_metric(name="SummarizerRuns", unit=MetricUnit.Count, value=1)
 
     if not items_to_process:
-        return {'statusCode': 200, 'body': 'No posts to update.'}
+        return {"statusCode": 200, "body": "No posts to update."}
 
     # dispatch tasks to a thread pool
     processed = 0
@@ -62,7 +61,7 @@ def lambda_handler(event, context):
                 metrics.add_metric(name="SummarizerFailures", unit=MetricUnit.Count, value=1)
                 logger.exception(
                     "Summarization thread failed",
-                    extra={"course_id": post.get('course_id'), "post_id": post.get('post_id')},
+                    extra={"course_id": post.get("course_id"), "post_id": post.get("post_id")},
                 )
 
     metrics.add_metric(name="SummarizerPostsProcessed", unit=MetricUnit.Count, value=processed)
@@ -71,8 +70,8 @@ def lambda_handler(event, context):
         extra={"total_posts": total_posts, "processed_posts": processed, "failed_posts": failed},
     )
     return {
-        'statusCode': 200,
-        'body': f'Processed {total_posts} posts. Success: {processed}. Failed: {failed}.'
+        "statusCode": 200,
+        "body": f"Processed {total_posts} posts. Success: {processed}. Failed: {failed}.",
     }
 
 
@@ -82,27 +81,27 @@ def summarize_post(post):
     la_tz = ZoneInfo("America/Los_Angeles")
     current_time = datetime.now(la_tz)
 
-    last_summarized_raw = post.get('summary_last_updated')
+    last_summarized_raw = post.get("summary_last_updated")
 
     if last_summarized_raw:
         query_time_limit = last_summarized_raw
     else:
-        query_time_limit = '1970-01-01T00:00:00Z'
+        query_time_limit = "1970-01-01T00:00:00Z"
 
     # get all diffs that have happened since the last time it was summarized
     diffs_response = diffs_table.query(
-        KeyConditionExpression='#pk = :pk AND #ts > :last',
-        ExpressionAttributeNames={'#pk': 'course_id#post_id', '#ts': 'timestamp'},
-        ExpressionAttributeValues={':pk': pk, ':last': query_time_limit}
+        KeyConditionExpression="#pk = :pk AND #ts > :last",
+        ExpressionAttributeNames={"#pk": "course_id#post_id", "#ts": "timestamp"},
+        ExpressionAttributeValues={":pk": pk, ":last": query_time_limit},
     )
 
-    if not diffs_response['Items']:
+    if not diffs_response["Items"]:
         logger.debug("No new diffs to summarize", extra={"post_key": pk})
         return
 
-    events_text = format_diffs(diffs_response['Items'])
-    post_title = post.get('post_title', 'Untitled')
-    current_summary = post.get('current_summary', 'No summary available.')
+    events_text = format_diffs(diffs_response["Items"])
+    post_title = post.get("post_title", "Untitled")
+    current_summary = post.get("current_summary", "No summary available.")
 
     is_fresh_start = needs_fresh_summary(post, current_time)
 
@@ -131,53 +130,52 @@ def summarize_post(post):
     summary = call_openai(prompt_content)
 
     posts_table.update_item(
-        Key={'course_id': post['course_id'], 'post_id': post['post_id']},
-        UpdateExpression='SET current_summary = :s, summary_last_updated = :t, needs_new_summary = :f',
-        ExpressionAttributeValues={
-            ':s': summary,
-            ':t': str(current_time),
-            ':f': False
-        }
+        Key={"course_id": post["course_id"], "post_id": post["post_id"]},
+        UpdateExpression="SET current_summary = :s, summary_last_updated = :t, needs_new_summary = :f",
+        ExpressionAttributeValues={":s": summary, ":t": str(current_time), ":f": False},
     )
     logger.info("Updated summary", extra={"post_key": pk})
 
+
 def needs_fresh_summary(post, current_time):
-    needs_new = post.get('needs_new_summary', False)
-    last_summarized_str = post.get('summary_last_updated')
-    summarization_range = 2 # days
-    
+    needs_new = post.get("needs_new_summary", False)
+    last_summarized_str = post.get("summary_last_updated")
+    summarization_range = 2  # days
+
     # if never summarized, we can't have a fresh start because there's no start to begin with
-    if not last_summarized_str or last_summarized_str < '2000-01-01T00:00:00Z':
+    if not last_summarized_str or last_summarized_str < "2000-01-01T00:00:00Z":
         return False
 
     try:
         last_summarized_dt = datetime.fromisoformat(last_summarized_str)
         if last_summarized_dt.tzinfo is None:
             last_summarized_dt = last_summarized_dt.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
-            
+
         days_since_summary = (current_time - last_summarized_dt).days
         outside_of_range = days_since_summary > summarization_range
     except ValueError:
         return True
 
-    return (needs_new or outside_of_range)
+    return needs_new or outside_of_range
+
 
 def format_diffs(diffs):
     formatted = []
     for diff in diffs:
-        timestamp = diff['timestamp']
-        diff_type = diff.get('type', 'update')
-        subject = diff.get('subject', '')
-        content = diff.get('content', '')
-        
+        timestamp = diff["timestamp"]
+        diff_type = diff.get("type", "update")
+        subject = diff.get("subject", "")
+        content = diff.get("content", "")
+
         formatted.append(f"[{timestamp}] {diff_type.upper()}")
         if subject:
             formatted.append(f"Subject: {subject}")
         if content:
-            formatted.append(f"Content: {content[:500]}...") 
+            formatted.append(f"Content: {content[:500]}...")
         formatted.append("")
-    
+
     return "\n".join(formatted)
+
 
 def call_openai(prompt_input):
     system_instructions = (
@@ -196,7 +194,7 @@ def call_openai(prompt_input):
         model="gpt-5-mini",
         reasoning={"effort": "minimal"},
         instructions=system_instructions,
-        input=prompt_input
+        input=prompt_input,
     )
-        
+
     return response.output[1].content[0].text

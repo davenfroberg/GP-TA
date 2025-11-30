@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class WebSocketType(Enum):
     CHUNK = "chat_chunk"
     DONE = "chat_done"

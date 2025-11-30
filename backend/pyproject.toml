@@ -1,0 +1,63 @@
+[tool.ruff]
+# Line length will be handled by the formatter
+line-length = 100
+
+# Exclude common directories (relative to backend/)
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "node_modules",
+    "*.egg-info",
+    "dist",
+    "build",
+    ".pytest_cache",
+    ".mypy_cache",
+    "lambda/**/python",  # Lambda layers
+    "chat/python",  # Lambda layer dependencies
+]
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+# Use spaces for indentation (defaults to 4 spaces for Python)
+indent-style = "space"
+# Respect magic trailing comma (default behavior)
+skip-magic-trailing-comma = false
+# Line ending style
+line-ending = "auto"
+
+[tool.ruff.lint]
+# Enable a comprehensive set of linting rules
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "E501", # line too long (handled separately)
+]
+
+ignore = [
+    "E501",  # Line length (handled by formatter)
+    "E402",  # Module level import not at top of file (sometimes needed)
+]
+
+# Rules for blank lines
+[tool.ruff.lint.pydocstyle]
+# Require blank lines between top-level definitions
+convention = "pep257"
+
+[tool.ruff.lint.isort]
+# Import sorting configuration
+known-first-party = []
+
+# Note: Blank lines are automatically enforced by pycodestyle rules (E302, E303, E304)
+# E302: expected 2 blank lines before top-level function/class definitions
+# E303: too many blank lines (3+) before function/class definitions
+# E304: blank lines found after function decorator
+# These are already included in the "E" rules selected above
+
