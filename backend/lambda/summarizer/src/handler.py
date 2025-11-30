@@ -132,7 +132,7 @@ def summarize_post(post):
     posts_table.update_item(
         Key={"course_id": post["course_id"], "post_id": post["post_id"]},
         UpdateExpression="SET current_summary = :s, summary_last_updated = :t, needs_new_summary = :f",
-        ExpressionAttributeValues={":s": summary, ":t": str(current_time), ":f": False},
+        ExpressionAttributeValues={":s": summary, ":t": current_time.isoformat(), ":f": False},
     )
     logger.info("Updated summary", extra={"post_key": pk})
 
