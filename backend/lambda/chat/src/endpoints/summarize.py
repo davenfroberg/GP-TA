@@ -1,3 +1,5 @@
+import random
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -138,14 +140,22 @@ def chat(
         summaries = get_recent_summaries(class_id, days=days)
 
         if not summaries:
-            send_websocket_message(
-                apigw_management,
-                connection_id,
-                {
-                    "message": f"No posts have been updated in the last {days} days.",
-                    "type": WebSocketType.CHUNK.value,
-                },
+            no_updates_message = (
+                f"You're all caught up! There have been no updates in the last {days} days."
             )
+
+            chunk_size = 5
+            for i in range(0, len(no_updates_message), chunk_size):
+                time.sleep(random.uniform(0.005, 0.03))
+                send_websocket_message(
+                    apigw_management,
+                    connection_id,
+                    {
+                        "message": no_updates_message[i : i + chunk_size],
+                        "type": WebSocketType.CHUNK.value,
+                    },
+                )
+
             return {"statusCode": 200}
 
         summaries_text = format_summaries_for_llm(summaries)
