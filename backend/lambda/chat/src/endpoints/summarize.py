@@ -50,8 +50,8 @@ def create_system_prompt() -> str:
 
 
 def get_recent_summaries(course_id: str, days: int = 2) -> list[dict]:
-    la_tz = ZoneInfo("America/Los_Angeles")
-    cutoff = (datetime.now(la_tz) - timedelta(days=days)).isoformat()
+    # Use UTC for consistent timestamp comparisons with Piazza dates
+    cutoff = (datetime.now(ZoneInfo("UTC")) - timedelta(days=days)).isoformat()
 
     try:
         # query for posts with summaries updated after the calculated cutoff

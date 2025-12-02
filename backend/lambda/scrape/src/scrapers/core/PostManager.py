@@ -85,7 +85,7 @@ class PostManager:
     def handle_individual_change(self, change, post, course_id, sequence):
         post_id = post.get("id")
         pk = f"{course_id}#{post_id}"
-        sk = f"{self.now}#{sequence}"
+        sk = f"{self.now.isoformat()}#{sequence}"
 
         change_type = change.get("type")
         subject, content = self.get_post_content(change, post)
@@ -112,10 +112,10 @@ class PostManager:
 
         if had_major_update:
             update_expr = "SET last_major_update = :lm, last_updated = :lu"
-            expr_values = {":lm": str(self.now), ":lu": str(self.now)}
+            expr_values = {":lm": self.now.isoformat(), ":lu": self.now.isoformat()}
         else:
             update_expr = "SET last_updated = :lu"
-            expr_values = {":lu": str(self.now)}
+            expr_values = {":lu": self.now.isoformat()}
 
         try:
             self.posts_table.update_item(
@@ -198,8 +198,8 @@ class PostManager:
                 "post_id": post_id,
                 "course_name": COURSE_NAMES[course_id],
                 "post_title": post.get("history")[0].get("subject"),
-                "last_updated": str(self.now),
-                "last_major_update": str(self.now),
+                "last_updated": self.now.isoformat(),
+                "last_major_update": self.now.isoformat(),
                 "num_changes": len(change_log),
                 "is_announcement": is_announcement,
                 "current_summary": None,  # this is set when the summarizer runs
@@ -242,7 +242,8 @@ class PostManager:
 
     def process_post(self, new_post, course_id):
         # set global 'now' to have the same time throughout processing
-        self.now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        # Store in UTC for consistency with Piazza dates (which are in UTC)
+        self.now = datetime.now(ZoneInfo("UTC"))
 
         post_id = new_post.get("id")
 

@@ -1,4 +1,34 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from scrapers.core.TextProcessor import TextProcessor
+
+
+def normalize_piazza_date(date_str: str) -> str:
+    """Normalize Piazza date string to ISO 8601 format with timezone.
+
+    Piazza dates may come in various formats. This ensures consistent ISO format.
+    """
+    if not date_str:
+        return ""
+
+    try:
+        # Try parsing as ISO format (Piazza typically uses ISO with Z)
+        if date_str.endswith("Z"):
+            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(date_str)
+
+        # Ensure timezone info exists
+        if dt.tzinfo is None:
+            # Assume UTC if no timezone info
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+
+        # Return in ISO format
+        return dt.isoformat()
+    except (ValueError, AttributeError):
+        # If parsing fails, return as-is (better than crashing)
+        return date_str
 
 
 class PiazzaDataExtractor:
@@ -42,7 +72,7 @@ class PiazzaDataExtractor:
                     if "content" in history_item
                     else child.get("subject", "")
                 ),
-                "date": history_item.get("created", child.get("created", "")),
+                "date": normalize_piazza_date(history_item.get("created", child.get("created", ""))),
                 "post_num": root_post_number,  # children get the same post number as root
                 "id": child.get("id", ""),
                 "parent_id": parent_id,
@@ -84,7 +114,7 @@ class PiazzaDataExtractor:
             "person_id": history_item.get("uid", "anonymous"),
             "person_name": self.get_name_from_userid(history_item.get("uid", "")),
             "is_endorsed": "n/a",  # only student answers can be endorsed
-            "date": history_item.get("created", ""),
+            "date": normalize_piazza_date(history_item.get("created", "")),
             "post_num": post.get("nr", 0),
             "id": post.get("id", ""),
             "parent_id": post.get("id", ""),

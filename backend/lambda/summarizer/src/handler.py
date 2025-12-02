@@ -78,15 +78,25 @@ def lambda_handler(event, context):
 def summarize_post(post):
     pk = f"{post['course_id']}#{post['post_id']}"
 
-    la_tz = ZoneInfo("America/Los_Angeles")
-    current_time = datetime.now(la_tz)
+    # Store timestamps in UTC for consistency with Piazza dates
+    current_time = datetime.now(ZoneInfo("UTC"))
 
     last_summarized_raw = post.get("summary_last_updated")
 
     if last_summarized_raw:
-        query_time_limit = last_summarized_raw
+        # Normalize to UTC for consistent comparison (handles old LA timezone data)
+        try:
+            dt = datetime.fromisoformat(last_summarized_raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+            else:
+                dt = dt.astimezone(ZoneInfo("UTC"))
+            query_time_limit = dt.isoformat()
+        except ValueError:
+            # Fallback to raw value if parsing fails
+            query_time_limit = last_summarized_raw
     else:
-        query_time_limit = "1970-01-01T00:00:00Z"
+        query_time_limit = "1970-01-01T00:00:00+00:00"
 
     # get all diffs that have happened since the last time it was summarized
     diffs_response = diffs_table.query(
@@ -129,10 +139,42 @@ def summarize_post(post):
 
     summary = call_openai(prompt_content)
 
+    # Normalize existing timestamps to UTC when updating (for backward compatibility)
+    # This ensures future comparisons work correctly even with old LA timezone data
+    update_expr = "SET current_summary = :s, summary_last_updated = :t, needs_new_summary = :f"
+    expr_values = {":s": summary, ":t": current_time.isoformat(), ":f": False}
+
+    # Also normalize last_major_update and last_updated if they exist and are in old format
+    # This prevents comparison issues in DynamoDB FilterExpression
+    last_major = post.get("last_major_update")
+    last_updated_val = post.get("last_updated")
+
+    if last_major:
+        try:
+            dt = datetime.fromisoformat(last_major)
+            if dt.tzinfo and dt.tzinfo.utcoffset(dt).total_seconds() != 0:
+                # Has timezone offset (not UTC), normalize to UTC
+                dt_utc = dt.astimezone(ZoneInfo("UTC"))
+                update_expr += ", last_major_update = :lm"
+                expr_values[":lm"] = dt_utc.isoformat()
+        except ValueError:
+            pass  # Skip if can't parse
+
+    if last_updated_val:
+        try:
+            dt = datetime.fromisoformat(last_updated_val)
+            if dt.tzinfo and dt.tzinfo.utcoffset(dt).total_seconds() != 0:
+                # Has timezone offset (not UTC), normalize to UTC
+                dt_utc = dt.astimezone(ZoneInfo("UTC"))
+                update_expr += ", last_updated = :lu"
+                expr_values[":lu"] = dt_utc.isoformat()
+        except ValueError:
+            pass  # Skip if can't parse
+
     posts_table.update_item(
         Key={"course_id": post["course_id"], "post_id": post["post_id"]},
-        UpdateExpression="SET current_summary = :s, summary_last_updated = :t, needs_new_summary = :f",
-        ExpressionAttributeValues={":s": summary, ":t": current_time.isoformat(), ":f": False},
+        UpdateExpression=update_expr,
+        ExpressionAttributeValues=expr_values,
     )
     logger.info("Updated summary", extra={"post_key": pk})
 
@@ -149,7 +191,11 @@ def needs_fresh_summary(post, current_time):
     try:
         last_summarized_dt = datetime.fromisoformat(last_summarized_str)
         if last_summarized_dt.tzinfo is None:
-            last_summarized_dt = last_summarized_dt.replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+            # Assume UTC if no timezone info (for backward compatibility)
+            last_summarized_dt = last_summarized_dt.replace(tzinfo=ZoneInfo("UTC"))
+        else:
+            # Ensure both timestamps are in UTC for comparison
+            last_summarized_dt = last_summarized_dt.astimezone(ZoneInfo("UTC"))
 
         days_since_summary = (current_time - last_summarized_dt).days
         outside_of_range = days_since_summary > summarization_range

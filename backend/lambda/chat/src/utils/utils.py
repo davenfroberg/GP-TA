@@ -73,7 +73,8 @@ def save_student_query(
 ) -> None:
     """Save a student query to DynamoDB with all relevant metadata."""
     try:
-        now = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
+        # Store timestamps in UTC for consistency with Piazza dates
+        now = datetime.now(ZoneInfo("UTC")).isoformat()
 
         # Convert embedding floats to Decimals for DynamoDB compatibility
         embedding_decimals = [Decimal(str(val)) for val in embedding]
