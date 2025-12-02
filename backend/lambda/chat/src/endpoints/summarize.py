@@ -7,7 +7,7 @@ import boto3
 from botocore.exceptions import ClientError
 from enums.WebSocketType import WebSocketType
 from utils.clients import apigw, openai
-from utils.constants import CLASSES, POSTS_TABLE_NAME
+from utils.constants import COURSES, POSTS_TABLE_NAME
 from utils.logger import logger
 from utils.utils import send_websocket_message
 
@@ -49,7 +49,7 @@ def create_system_prompt() -> str:
     - Be specific about what's being discussed, not generic"""
 
 
-def get_recent_summaries(class_id: str, days: int = 2) -> list[dict]:
+def get_recent_summaries(course_id: str, days: int = 2) -> list[dict]:
     la_tz = ZoneInfo("America/Los_Angeles")
     cutoff = (datetime.now(la_tz) - timedelta(days=days)).isoformat()
 
@@ -58,7 +58,7 @@ def get_recent_summaries(class_id: str, days: int = 2) -> list[dict]:
         response = posts_table.query(
             IndexName="course_id-summary_last_updated-index",
             KeyConditionExpression="course_id = :cid AND summary_last_updated > :cutoff",
-            ExpressionAttributeValues={":cid": class_id, ":cutoff": cutoff},
+            ExpressionAttributeValues={":cid": course_id, ":cutoff": cutoff},
         )
 
         summaries = []
@@ -98,7 +98,7 @@ def get_recent_summaries(class_id: str, days: int = 2) -> list[dict]:
         return summaries
 
     except Exception:
-        logger.exception("Failed to fetch summaries", extra={"class_id": class_id})
+        logger.exception("Failed to fetch summaries", extra={"course_id": course_id})
         return []
 
 
@@ -120,7 +120,7 @@ def chat(
     domain_name: str,
     stage: str,
     query: str,
-    class_name: str,
+    course_name: str,
     gpt_model: str,
     prioritize_instructor: bool,
 ) -> dict[str, int]:
@@ -129,15 +129,15 @@ def chat(
     days = 2
 
     try:
-        if not query or not class_name:
-            raise ValueError("Missing required fields: message or class")
+        if not query or not course_name:
+            raise ValueError("Missing required fields: message or course_name")
 
-        if class_name not in CLASSES:
-            raise ValueError(f"Unknown class: {class_name}")
+        if course_name not in COURSES:
+            raise ValueError(f"Unknown course: {course_name}")
 
-        class_id = CLASSES[class_name]
+        course_id = COURSES[course_name]
 
-        summaries = get_recent_summaries(class_id, days=days)
+        summaries = get_recent_summaries(course_id, days=days)
 
         if not summaries:
             no_updates_message = (
@@ -200,7 +200,7 @@ def chat(
     except Exception:
         logger.exception(
             "Error processing summarize request",
-            extra={"connection_id": connection_id, "class_id": class_id},
+            extra={"connection_id": connection_id, "course_id": course_id},
         )
         send_websocket_message(
             apigw_management,

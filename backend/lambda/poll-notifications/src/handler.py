@@ -81,30 +81,34 @@ class NotificationService:
         logger.info("Found active notifications", extra={"notification_count": len(notifications)})
         return notifications
 
-    def search_embeddings(self, query: str, class_id: str, top_k: int) -> list[EmbeddingMatch]:
+    def search_embeddings(self, query: str, course_id: str, top_k: int) -> list[EmbeddingMatch]:
         """Search Pinecone for matching embeddings"""
         logger.info(
             "Searching Pinecone for embeddings",
-            extra={"query": query, "class_id": class_id, "top_k": top_k},
+            extra={"query": query, "class_id": course_id, "top_k": top_k},
         )
 
         try:
             results = index.search(
                 namespace="piazza",
-                query={"top_k": top_k, "filter": {"class_id": class_id}, "inputs": {"text": query}},
+                query={
+                    "top_k": top_k,
+                    "filter": {"class_id": course_id},
+                    "inputs": {"text": query},
+                },
             )
 
             hits = results["result"]["hits"]
             logger.info(
                 "Pinecone search completed",
-                extra={"class_id": class_id, "result_count": len(hits), "top_k": top_k},
+                extra={"class_id": course_id, "result_count": len(hits), "top_k": top_k},
             )
 
             return [self._parse_embedding(hit) for hit in hits]
         except Exception:
             logger.exception(
                 "Failed to search Pinecone",
-                extra={"query": query, "class_id": class_id, "top_k": top_k},
+                extra={"query": query, "class_id": course_id, "top_k": top_k},
             )
             raise
 

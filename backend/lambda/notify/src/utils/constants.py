@@ -5,7 +5,7 @@ SENT_TABLE_NAME = "notifications-sent"
 
 SECRETS = {"PINECONE": "pinecone_key"}
 
-CLASSES = {
+COURSES = {
     "cpsc330": "mekbcze4gyber",
     "cpsc110": "mdi1cvod8vu5hf",
     "cpsc121": "mcv0sbotg6s51",

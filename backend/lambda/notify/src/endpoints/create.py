@@ -4,7 +4,7 @@ from decimal import Decimal
 import boto3
 from utils.clients import pinecone
 from utils.constants import (
-    CLASSES,
+    COURSES,
     MAX_NOTIFICATIONS,
     MAX_THRESHOLD,
     MIN_THRESHOLD,
@@ -15,26 +15,27 @@ from utils.constants import (
 from utils.logger import logger
 
 
-def get_closest_embedding_score(query: str, class_id) -> list[dict]:
-    """Search Pinecone for the most relevant chunks for a given query and class."""
+def get_closest_embedding_score(query: str, course_id: str) -> list[dict]:
+    """Search Pinecone for the most relevant chunks for a given query and course_id."""
     try:
         logger.debug(
-            "Searching Pinecone for closest embedding", extra={"query": query, "class_id": class_id}
+            "Searching Pinecone for closest embedding",
+            extra={"query": query, "class_id": course_id},
         )
         index = pinecone().Index(PINECONE_INDEX_NAME)
         results = index.search(
             namespace="piazza",
-            query={"top_k": 1, "filter": {"class_id": class_id}, "inputs": {"text": query}},
+            query={"top_k": 1, "filter": {"class_id": course_id}, "inputs": {"text": query}},
         )
         score = results["result"]["hits"][0]["_score"]
         logger.debug(
             "Found closest embedding score",
-            extra={"query": query, "class_id": class_id, "score": score},
+            extra={"query": query, "class_id": course_id, "score": score},
         )
         return score
     except Exception:
         logger.exception(
-            "Failed to get closest embedding score", extra={"query": query, "class_id": class_id}
+            "Failed to get closest embedding score", extra={"query": query, "class_id": course_id}
         )
         raise
 
@@ -82,9 +83,9 @@ def create_notification(event):
             }
 
         course_key = course_display_name.lower().replace(" ", "")
-        if course_key not in CLASSES:
+        if course_key not in COURSES:
             logger.warning(
-                "Course not found in CLASSES mapping",
+                "Course not found in COURSES mapping",
                 extra={"course_display_name": course_display_name, "course_key": course_key},
             )
             return {
@@ -95,7 +96,7 @@ def create_notification(event):
                 "body": json.dumps({"error": f'Course "{course_display_name}" not found'}),
             }
 
-        course_id = CLASSES[course_key]
+        course_id = COURSES[course_key]
 
         logger.info(
             "Processing notification creation",

@@ -18,13 +18,13 @@ class ChunkManager:
         self.pinecone_batch = []
         self.chunk_count = 0
 
-    def create_chunk(self, blob, chunk_index, chunk_text, class_id):
+    def create_chunk(self, blob, chunk_index, chunk_text, course_id):
         """Create a chunk dictionary from blob data"""
         content_hash = TextProcessor.compute_hash(chunk_text)
 
         return {
             "id": f"{blob['id']}#{chunk_index}",
-            "class_id": class_id,
+            "class_id": course_id,  # keep this as class_id for now for backwards compatibility
             "blob_id": blob["id"],
             "chunk_index": chunk_index,
             "root_id": blob["root_id"],

@@ -1,6 +1,6 @@
 from enums.WebSocketType import WebSocketType
 from utils.clients import apigw, openai
-from utils.constants import CLASSES
+from utils.constants import COURSES
 from utils.logger import logger
 from utils.utils import send_websocket_message
 
@@ -19,7 +19,7 @@ def chat(
     domain_name: str,
     stage: str,
     query: str,
-    class_name: str,
+    course_name: str,
     gpt_model: str,
     prioritize_instructor: bool,
 ) -> dict[str, int]:
@@ -29,13 +29,13 @@ def chat(
     apigw_management = apigw(domain_name, stage)
 
     try:
-        if not query or not class_name:
-            raise ValueError("Missing required fields: message or class")
+        if not query or not course_name:
+            raise ValueError("Missing required fields: message or course_name")
 
-        if class_name not in CLASSES:
-            raise ValueError(f"Unknown class: {class_name}")
+        if course_name not in COURSES:
+            raise ValueError(f"Unknown course: {course_name}")
 
-        class_id = CLASSES[class_name]
+        course_id = COURSES[course_name]
 
         # Send progress update
         send_websocket_message(
@@ -80,7 +80,7 @@ def chat(
     except Exception:
         logger.exception(
             "Error processing overview request",
-            extra={"connection_id": connection_id, "class_id": class_id},
+            extra={"connection_id": connection_id, "course_id": course_id},
         )
         send_websocket_message(
             apigw_management,

@@ -26,7 +26,7 @@ def lambda_handler(event, context):
 
         body = json.loads(event.get("body", "{}"))
         message = body.get("message")
-        class_name = body.get("class")
+        course_name = body.get("course_name")
         model = body.get("model", "gpt-5")
         prioritize_instructor = body.get("prioritizeInstructor", False)
 
@@ -40,7 +40,8 @@ def lambda_handler(event, context):
 
         intent = predict_intent(embedding)
         logger.debug(
-            "Intent detected", extra={"intent": intent, "class_name": class_name, "model": model}
+            "Intent detected",
+            extra={"intent": intent, "course_name": course_name, "model": model},
         )
 
         normalized_query = normalize_query(message)
@@ -52,7 +53,7 @@ def lambda_handler(event, context):
                     domain_name,
                     stage,
                     normalized_query,
-                    class_name,
+                    course_name,
                     model,
                     prioritize_instructor,
                 )
@@ -62,7 +63,7 @@ def lambda_handler(event, context):
                     domain_name,
                     stage,
                     normalized_query,
-                    class_name,
+                    course_name,
                     model,
                     prioritize_instructor,
                 )
@@ -72,7 +73,7 @@ def lambda_handler(event, context):
                     domain_name,
                     stage,
                     normalized_query,
-                    class_name,
+                    course_name,
                     model,
                     prioritize_instructor,
                 )

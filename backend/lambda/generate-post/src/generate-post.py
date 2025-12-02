@@ -58,7 +58,7 @@ def create_system_prompt() -> str:
     """Create the system prompt for the OpenAI model."""
 
     return (
-        "Write a concise, casual post for a class Q&A (Piazza) board, as if you were the student writing the post.\n\n"
+        "Write a concise, casual post for a course Q&A (Piazza) board, as if you were the student writing the post.\n\n"
         "Requirements:\n"
         "- Reword the student’s question to be more precise and detailed and ask for clarification.\n"
         "- Mention if you already checked Piazza/notes/etc. but didn’t find a clear answer.\n"

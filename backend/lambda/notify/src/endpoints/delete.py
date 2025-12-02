@@ -2,7 +2,7 @@ import json
 
 import boto3
 from boto3.dynamodb.conditions import Key
-from utils.constants import CLASSES, NOTIFICATIONS_TABLE_NAME, SENT_TABLE_NAME
+from utils.constants import COURSES, NOTIFICATIONS_TABLE_NAME, SENT_TABLE_NAME
 from utils.logger import logger
 
 dynamo = boto3.resource("dynamodb")
@@ -95,9 +95,9 @@ def delete_notification(event):
             }
 
         course_key = course_display_name.lower().replace(" ", "")
-        if course_key not in CLASSES:
+        if course_key not in COURSES:
             logger.warning(
-                "Course not found in CLASSES mapping",
+                "Course not found in COURSES mapping",
                 extra={"course_display_name": course_display_name, "course_key": course_key},
             )
             return {
@@ -106,7 +106,7 @@ def delete_notification(event):
                 "body": json.dumps({"error": f'Course "{course_display_name}" not found'}),
             }
 
-        course_id = CLASSES[course_key]
+        course_id = COURSES[course_key]
 
         logger.info(
             "Deleting notification",

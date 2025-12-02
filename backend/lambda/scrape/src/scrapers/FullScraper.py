@@ -18,23 +18,23 @@ class FullScraper(AbstractScraper):
             logger.exception("Failed to extract course_id from event")
             raise
 
-        self.scrape_class(course_id)
+        self.scrape_course(course_id)
 
-    def scrape_class(self, class_id):
+    def scrape_course(self, course_id: str):
         """Main scrape function"""
         # Skip ignored courses
-        if class_id in IGNORED_COURSE_IDS:
-            logger.info("Skipping ignored course", extra={"course_id": class_id})
-            return {"statusCode": 200, "message": f"Skipped ignored course {class_id}"}
+        if course_id in IGNORED_COURSE_IDS:
+            logger.info("Skipping ignored course", extra={"course_id": course_id})
+            return {"statusCode": 200, "message": f"Skipped ignored course {course_id}"}
 
-        logger.info("Starting full scrape", extra={"course_id": class_id})
+        logger.info("Starting full scrape", extra={"course_id": course_id})
         metrics.add_metric(name="ScrapeRuns", unit=MetricUnit.Count, value=1)
         processed_posts = 0
         try:
-            network = self.piazza.network(class_id)
+            network = self.piazza.network(course_id)
             extractor = PiazzaDataExtractor(network)
 
-            # Process each post in the given class
+            # Process each post in the given course
             for post in network.iter_all_posts(limit=None, sleep=1):
                 post_chunks = []
 
@@ -45,7 +45,7 @@ class FullScraper(AbstractScraper):
                 for blob in blobs:
                     text_chunks = TextProcessor.generate_chunks(blob)
                     for idx, chunk_text in enumerate(text_chunks):
-                        chunk = self.chunk_manager.create_chunk(blob, idx, chunk_text, class_id)
+                        chunk = self.chunk_manager.create_chunk(blob, idx, chunk_text, course_id)
                         post_chunks.append(chunk)
                 # this actually does the upsert to Pinecone and store to DynamoDB
                 self.chunk_manager.process_post_chunks(post_chunks)
@@ -54,7 +54,7 @@ class FullScraper(AbstractScraper):
             total_chunks = self.chunk_manager.finalize()
             logger.info(
                 "Completed full scrape",
-                extra={"course_id": class_id, "total_chunks": total_chunks},
+                extra={"course_id": course_id, "total_chunks": total_chunks},
             )
             metrics.add_metric(
                 name="ScrapePostsProcessed", unit=MetricUnit.Count, value=processed_posts
@@ -66,5 +66,5 @@ class FullScraper(AbstractScraper):
             return {"statusCode": 200, "message": f"Successfully upserted {total_chunks} chunks"}
 
         except Exception:
-            logger.exception("Full scrape failed", extra={"course_id": class_id})
+            logger.exception("Full scrape failed", extra={"course_id": course_id})
             raise

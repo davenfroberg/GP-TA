@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import boto3
 from enums.WebSocketType import WebSocketType
 from utils.clients import dynamo, openai, pinecone
-from utils.constants import CLASSES, PINECONE_INDEX_NAME
+from utils.constants import COURSES, PINECONE_INDEX_NAME
 from utils.logger import logger
 from utils.utils import send_websocket_message
 
@@ -15,12 +15,16 @@ CITATION_THRESHOLD_MULTIPLIER = 0.7
 _context_retriever = None
 
 
-def get_top_chunks(query: str, class_id: str) -> list[dict]:
-    """Search Pinecone for the most relevant chunks for a given query and class."""
+def get_top_chunks(query: str, course_id: str) -> list[dict]:
+    """Search Pinecone for the most relevant chunks for a given query and course_id."""
     index = pinecone().Index(PINECONE_INDEX_NAME)
     results = index.search(
         namespace="piazza",
-        query={"top_k": CHUNKS_TO_USE, "filter": {"class_id": class_id}, "inputs": {"text": query}},
+        query={
+            "top_k": CHUNKS_TO_USE,
+            "filter": {"class_id": course_id},
+            "inputs": {"text": query},
+        },
     )
     hits = results.get("result", {}).get("hits", [])
     return [h for h in hits if h.get("_score", 0) >= CLOSENESS_THRESHOLD]
@@ -282,11 +286,11 @@ def format_citations(top_chunks: list[dict]) -> list[dict[str, str]]:
 
     for chunk in top_chunks:
         fields = chunk.get("fields", chunk)
-        class_id = fields["class_id"]
+        course_id = fields["class_id"]
         post_id = fields["root_id"]
         post_title = fields.get("title", "Piazza Post")
         post_number = fields.get("root_post_num", "")
-        post_url = f"https://piazza.com/class/{class_id}/post/{post_id}"
+        post_url = f"https://piazza.com/class/{course_id}/post/{post_id}"
 
         # Skip generic welcome post
         if post_title == "Welcome to Piazza!":
@@ -324,7 +328,7 @@ def format_citations(top_chunks: list[dict]) -> list[dict[str, str]]:
 
 
 def create_citation_map(
-    context_chunks: list[tuple[str, str, str, int]], top_chunks: list[dict], class_id: str
+    context_chunks: list[tuple[str, str, str, int]], top_chunks: list[dict], course_id: str
 ) -> tuple[dict[str, dict[str, str]], dict[str, str]]:
     """Create a mapping from post_number to citation metadata, and from root_id to post_number. Only create citations for posts that have a post_number."""
     citation_map: dict[str, dict[str, str]] = {}
@@ -361,7 +365,7 @@ def create_citation_map(
         if not post_number:
             continue
 
-        post_url = f"https://piazza.com/class/{class_id}/post/{root_id}"
+        post_url = f"https://piazza.com/class/{course_id}/post/{root_id}"
 
         citation: dict[str, str] = {
             "title": post_title,
@@ -434,7 +438,7 @@ def chat(
     domain_name: str,
     stage: str,
     query: str,
-    class_name: str,
+    course_name: str,
     gpt_model: str,
     prioritize_instructor: bool,
 ) -> dict[str, int]:
@@ -446,16 +450,16 @@ def chat(
     )
 
     try:
-        if not query or not class_name:
-            raise ValueError("Missing required fields: message or class")
+        if not query or not course_name:
+            raise ValueError("Missing required fields: message or course_name")
 
-        if class_name not in CLASSES:
-            raise ValueError(f"Unknown class: {class_name}")
+        if course_name not in COURSES:
+            raise ValueError(f"Unknown course: {course_name}")
 
-        class_id = CLASSES[class_name]
+        course_id = COURSES[course_name]
 
         # Get relevant chunks and context using cached clients
-        top_chunks = get_top_chunks(query, class_id)
+        top_chunks = get_top_chunks(query, course_id)
 
         context_retriever = get_context_retriever()
         context_chunks = context_retriever.get_context_from_chunks(
@@ -464,7 +468,7 @@ def chat(
 
         # Create citation map and format context with citation post numbers
         citation_map, post_to_post_number = create_citation_map(
-            context_chunks, top_chunks, class_id
+            context_chunks, top_chunks, course_id
         )
         context = format_context(context_chunks, citation_map, post_to_post_number)
         prompt = f"Context:\n{context}\n\nUser's Question: {query}\nAnswer:"
@@ -560,7 +564,7 @@ def chat(
             if needs_more_context:
                 logger.debug(
                     "Not enough context detected",
-                    extra={"connection_id": connection_id, "class_id": class_id},
+                    extra={"connection_id": connection_id, "course_id": course_id},
                 )
 
         send_websocket_message(
@@ -586,7 +590,7 @@ def chat(
     except Exception:
         logger.exception(
             "Error processing general_query request",
-            extra={"connection_id": connection_id, "class_id": class_id},
+            extra={"connection_id": connection_id, "course_id": course_id},
         )
         send_websocket_message(
             apigw_management,

@@ -14,11 +14,11 @@ import NotificationsModal from "./NotificationsModal";
 
 export default function PiazzaChat() {
   const isDark = useTheme();
-  
+
   // State management
-  const [tabs, setTabs] = usePersistedState<ChatTab[]>('gp-ta-tabs', [{ 
-    id: Date.now(), 
-    title: "Chat 1", 
+  const [tabs, setTabs] = usePersistedState<ChatTab[]>('gp-ta-tabs', [{
+    id: Date.now(),
+    title: "Chat 1",
     messages: [],
     selectedCourse: COURSES[0]
   }]);
@@ -57,18 +57,18 @@ export default function PiazzaChat() {
   const tabScrollPositionsRef = useRef<Map<number, number>>(new Map());
 
   // Memoized derived state
-  const activeTab = useMemo(() => 
-    tabs.find(t => t.id === activeTabId)!, 
+  const activeTab = useMemo(() =>
+    tabs.find(t => t.id === activeTabId)!,
     [tabs, activeTabId]
   );
 
   // Check if current tab is loading
-  const isCurrentTabLoading = useMemo(() => 
-    loadingTabs.has(activeTabId), 
+  const isCurrentTabLoading = useMemo(() =>
+    loadingTabs.has(activeTabId),
     [loadingTabs, activeTabId]
   );
 
-  const hasUnseenNotifications = useMemo(() => 
+  const hasUnseenNotifications = useMemo(() =>
     notifications.length > lastSeenCount,
     [notifications.length, lastSeenCount]
   );
@@ -158,12 +158,12 @@ export default function PiazzaChat() {
   // Improved auto-scroll function
   const scrollToBottom = useCallback((force: boolean = false) => {
     if (!messagesContainerRef.current) return;
-    
+
     // Only auto-scroll if user hasn't manually scrolled up or if forced
     if (!force && !shouldAutoScrollRef.current) return;
-    
+
     const container = messagesContainerRef.current;
-    
+
     // Use smooth scrolling for better UX
     container.scrollTo({
       top: container.scrollHeight,
@@ -181,14 +181,14 @@ export default function PiazzaChat() {
   // Restore scroll position for a specific tab
   const restoreScrollPosition = useCallback((tabId: number) => {
     if (!messagesContainerRef.current) return;
-    
+
     const savedPosition = tabScrollPositionsRef.current.get(tabId);
     if (savedPosition !== undefined) {
       // Use requestAnimationFrame to ensure DOM is updated before scrolling
       requestAnimationFrame(() => {
         if (messagesContainerRef.current) {
           messagesContainerRef.current.scrollTop = savedPosition;
-          
+
           // Update auto-scroll state based on restored position
           const isAtBottom = isNearBottom();
           shouldAutoScrollRef.current = isAtBottom;
@@ -199,23 +199,23 @@ export default function PiazzaChat() {
       setTimeout(() => scrollToBottom(true), 10);
     }
   }, [isNearBottom, scrollToBottom]);
-  
+
 
   // Handle scroll events to detect user scrolling
   const handleScroll = useCallback(() => {
     if (!messagesContainerRef.current) return;
-    
+
     // Save current scroll position for active tab
     saveCurrentScrollPosition();
-    
+
     // Clear existing timeout
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
     }
-    
+
     // Check if user is scrolling manually
     const wasNearBottom = isNearBottom();
-    
+
     // If user scrolled away from bottom, disable auto-scroll
     if (!wasNearBottom) {
       shouldAutoScrollRef.current = false;
@@ -225,7 +225,7 @@ export default function PiazzaChat() {
       shouldAutoScrollRef.current = true;
       isUserScrollingRef.current = false;
     }
-    
+
     // Reset scroll detection after a delay
     scrollTimeoutRef.current = setTimeout(() => {
       isUserScrollingRef.current = false;
@@ -234,15 +234,15 @@ export default function PiazzaChat() {
       }
     }, 150);
   }, [isNearBottom, saveCurrentScrollPosition]);
-  
+
 
   // Add scroll listener to messages container
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
-    
+
     container.addEventListener('scroll', handleScroll, { passive: true });
-    
+
     return () => {
       container.removeEventListener('scroll', handleScroll);
       if (scrollTimeoutRef.current) {
@@ -287,19 +287,17 @@ export default function PiazzaChat() {
   useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
-  
+
 
   // Memoized WebSocket creation function
   const getOrCreateWebSocket = useCallback((tabId: number): WebSocket => {
     let ws = wsConnectionsRef.current.get(tabId);
-    
+
     if (!ws || ws.readyState === WebSocket.CLOSED) {
       ws = new WebSocket(WEBSOCKET_URL);
       wsConnectionsRef.current.set(tabId, ws);
-      
-      ws.onopen = () => console.log(`WebSocket connected for tab ${tabId}`);
+
       ws.onclose = () => {
-        console.log(`WebSocket disconnected for tab ${tabId}`);
         wsConnectionsRef.current.delete(tabId);
       };
       ws.onerror = (err) => {
@@ -313,7 +311,7 @@ export default function PiazzaChat() {
       };
       ws.onmessage = (event) => handleWebSocketMessage(event, tabId);
     }
-    
+
     return ws;
   }, [setTabLoading]); // Added setTabLoading to dependencies
 
@@ -337,21 +335,21 @@ export default function PiazzaChat() {
           : tab
       )
     );
-    
+
     // Force scroll to bottom when adding new messages
     if (tabId === activeTabId) {
       shouldAutoScrollRef.current = true;
       setTimeout(() => scrollToBottom(true), 10);
     }
   }, [setTabs, activeTabId, scrollToBottom]);
-  
+
   // Optimized simple AI response
   const addSimpleAIResponse = useCallback((responseText: string) => {
     const assistantMsgId = Date.now();
-    const assistantMsg: Message = { 
-      id: assistantMsgId, 
-      role: "assistant", 
-      text: responseText 
+    const assistantMsg: Message = {
+      id: assistantMsgId,
+      role: "assistant",
+      text: responseText
     };
     addMessagesToTab(activeTabId, [assistantMsg]);
   }, [activeTabId, addMessagesToTab]);
@@ -370,32 +368,30 @@ export default function PiazzaChat() {
       case "chat_done":
         messageBufferRef.current.delete(tabId);
         setTabLoading(tabId, false);
-        console.log(data)
-        
+
         // Handle needs_more_context flag
         if (data.needs_more_context !== undefined) {
           setTabs(prev => {
             const assistantId = currentAssistantIdRef.current.get(tabId);
             return prev.map(tab => {
               if (tab.id !== tabId) return tab;
-              
-              const updatedMessages = tab.messages.map(m => 
+
+              const updatedMessages = tab.messages.map(m =>
                 m.role === "assistant" && m.id === assistantId
                   ? { ...m, needsMoreContext: data.needs_more_context }
                   : m
               );
-              
+
               return { ...tab, messages: updatedMessages };
             });
           });
         }
-        
+
         if (tabId === activeTabId) {
           setTimeout(() => scrollToBottom(), 100);
         }
         break;
       case "prompt":
-        console.log(data);
         break;
       case "chat_chunk":
         const currentBuffer = messageBufferRef.current.get(tabId) || "";
@@ -448,7 +444,7 @@ export default function PiazzaChat() {
 
       // Find the assistant message index
       const assistantMessageIndex = activeTab.messages.findIndex(m => m.id === messageId);
-      
+
       if (assistantMessageIndex === -1) {
         console.error("Assistant message not found");
         setTabs(prev =>
@@ -468,10 +464,10 @@ export default function PiazzaChat() {
         addSimpleAIResponse("Sorry, I couldn't process your notification request.");
         return;
       }
-      
+
       // The user's message should be right before the assistant's message
       const usersMessageIndex = assistantMessageIndex - 1;
-      
+
       if (usersMessageIndex < 0 || !activeTab.messages[usersMessageIndex]?.text) {
         console.error("User message not found or empty");
         setTabs(prev =>
@@ -507,16 +503,14 @@ export default function PiazzaChat() {
           course_display_name: messageCourse
         })
       });
-        
+
       if (!response.ok) {
         throw new Error(`API request failed: ${response.status}`);
       }
-        
+
       const data = await response.json();
-      console.log("Notify API response:", data);
 
       if (response.status === 201) {
-        console.log("Adding new notification to state");
         const notificationId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const newNotification = {
           id: notificationId,
@@ -572,7 +566,7 @@ export default function PiazzaChat() {
     setIsPopupOpen(true);
     setPendingPostGeneration(true);
   }, []);
-  
+
 
   // Optimized message update functions with reduced object creation
   const updateAssistantMessage = useCallback((tabId: number, text: string) => {
@@ -580,13 +574,13 @@ export default function PiazzaChat() {
       const assistantId = currentAssistantIdRef.current.get(tabId);
       return prev.map(tab => {
         if (tab.id !== tabId) return tab;
-        
-        const updatedMessages = tab.messages.map(m => 
+
+        const updatedMessages = tab.messages.map(m =>
           m.role === "assistant" && m.id === assistantId
             ? { ...m, text }
             : m
         );
-        
+
         return { ...tab, messages: updatedMessages };
       });
     });
@@ -597,13 +591,13 @@ export default function PiazzaChat() {
       const assistantId = currentAssistantIdRef.current.get(tabId);
       return prev.map(tab => {
         if (tab.id !== tabId) return tab;
-        
+
         const updatedMessages = tab.messages.map(m =>
           m.role === "assistant" && m.id === assistantId
             ? { ...m, citations, citationMap }
             : m
         );
-        
+
         return { ...tab, messages: updatedMessages };
       });
     });
@@ -613,24 +607,24 @@ export default function PiazzaChat() {
   const sendMessage = useCallback(() => {
     // Prevent sending if tab is currently loading
     if (isCurrentTabLoading) return;
-    
+
     const trimmed = input.trim();
     if (!trimmed) return;
 
     const userMsgId = Date.now();
-    const userMsg: Message = { 
-      id: userMsgId, 
-      role: "user", 
+    const userMsg: Message = {
+      id: userMsgId,
+      role: "user",
       text: trimmed,
       course: activeTab.selectedCourse
     };
 
     const assistantMsgId = userMsgId + 1;
 
-    const assistantMsg: Message = { 
-      id: assistantMsgId, 
-      role: "assistant", 
-      text: "Finding relevant Piazza posts..." 
+    const assistantMsg: Message = {
+      id: assistantMsgId,
+      role: "assistant",
+      text: "Finding relevant Piazza posts..."
     };
 
     currentAssistantIdRef.current.set(activeTabId, assistantMsgId);
@@ -642,13 +636,13 @@ export default function PiazzaChat() {
     setTabLoading(activeTabId, true);
 
     const ws = getOrCreateWebSocket(activeTabId);
-    
+
     const sendToWebSocket = () => {
       try {
         ws.send(JSON.stringify({
           action: "chat",
           message: trimmed,
-          class: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
+          course_name: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
           model: chatConfig.model,
           prioritizeInstructor: chatConfig.prioritizeInstructor,
         }));
@@ -666,12 +660,12 @@ export default function PiazzaChat() {
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
         setTabLoading(activeTabId, false); // Stop loading on timeout
       }, 10000);
-      
+
       ws.addEventListener('open', () => {
         clearTimeout(connectionTimeout);
         sendToWebSocket();
       }, { once: true });
-      
+
       ws.addEventListener('error', () => {
         clearTimeout(connectionTimeout);
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
@@ -705,9 +699,9 @@ export default function PiazzaChat() {
     if (tabs.length >= MAX_NUMBER_OF_TABS) return;
     const id = Date.now();
     const nextNumber = tabs.length + 1;
-    const newTab: ChatTab = { 
-      id, 
-      title: `Chat ${nextNumber}`, 
+    const newTab: ChatTab = {
+      id,
+      title: `Chat ${nextNumber}`,
       messages: [],
       selectedCourse: COURSES[0]
     };
@@ -733,7 +727,7 @@ export default function PiazzaChat() {
   const closeTab = useCallback((tabId: number) => {
     setTabs(prev => {
       if (prev.length === 1) return prev;
-      
+
       const tabIndex = prev.findIndex(t => t.id === tabId);
       const newTabs = prev.filter(t => t.id !== tabId);
 
@@ -741,10 +735,10 @@ export default function PiazzaChat() {
       messageBufferRef.current.delete(tabId);
       currentAssistantIdRef.current.delete(tabId);
       tabScrollPositionsRef.current.delete(tabId); // Clean up scroll position
-      
+
       // Clean up loading state for closed tab
       setTabLoading(tabId, false);
-      
+
       const ws = wsConnectionsRef.current.get(tabId);
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
@@ -759,15 +753,15 @@ export default function PiazzaChat() {
         } else {
           const newId = Date.now();
           setActiveTabId(newId);
-          return [{ 
-            id: newId, 
-            title: "Chat 1", 
+          return [{
+            id: newId,
+            title: "Chat 1",
             messages: [],
             selectedCourse: COURSES[0]
           }];
         }
       }
-      
+
       return newTabs;
     });
   }, [activeTabId, setTabs, setActiveTabId, setTabLoading]);
@@ -822,7 +816,7 @@ export default function PiazzaChat() {
     <div className={`h-screen ${themeClasses.background} flex flex-col relative`}>
       <div className="relative flex-1 flex justify-center items-stretch my-3">
         <div className={`w-full max-w-5xl flex flex-col rounded-2xl ${themeClasses.mainContainer} relative overflow-hidden`}>
-          
+
           {/* Tab Bar */}
           <div className="relative z-30">
             <TabBar
@@ -849,7 +843,7 @@ export default function PiazzaChat() {
           <div
             ref={messagesContainerRef}
             className="absolute top-0 bottom-[153px] left-0 right-0 overflow-y-auto p-6 pt-16 space-y-3 z-10"
-            style={{ 
+            style={{
               backdropFilter: "blur(6px)",
               scrollbarWidth: 'none'
             }}
@@ -858,10 +852,10 @@ export default function PiazzaChat() {
               <ExamplePrompts themeClasses={themeClasses} />
             ) : (
               activeTab.messages.map((message, index) => (
-                <MessageBubble 
-                  key={message.id} 
-                  {...message} 
-                  themeClasses={themeClasses} 
+                <MessageBubble
+                  key={message.id}
+                  {...message}
+                  themeClasses={themeClasses}
                   isFirstMessage={index === 0}
                   onNotifyMe={handleNotifyMe}
                   onPostToPiazza={handlePostToPiazza}
@@ -883,7 +877,7 @@ export default function PiazzaChat() {
             onKeyDown={handleKeyDown}
             themeClasses={themeClasses}
           />
-          
+
         </div>
       </div>
       <PostGeneratorPopup
