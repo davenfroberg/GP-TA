@@ -2,7 +2,11 @@ SECRETS = {"PINECONE": "pinecone_key", "OPENAI": "open_ai_key"}
 PINECONE_INDEX_NAME = "piazza-chunks"
 AWS_REGION_NAME = "us-west-2"
 
+CHUNKS_TABLE_NAME = "piazza-chunks"
+QUERIES_TABLE_NAME = "student-queries"
 POSTS_TABLE_NAME = "piazza-posts"
+
+EMBEDDING_MODEL = "text-embedding-3-small"
 
 COURSES = {
     "cpsc330": "mekbcze4gyber",

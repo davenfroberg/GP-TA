@@ -1,15 +1,17 @@
 import json
+from uuid import uuid4
 
 from endpoints import general_query, overview, summarize
 from enums.Intent import Intent
 from enums.WebSocketType import WebSocketType
 from predict_intent import predict_intent  # type: ignore ; b/c this is in lambda layer
 from utils.clients import apigw, openai
+from utils.constants import EMBEDDING_MODEL
 from utils.logger import logger
 from utils.utils import normalize_query, send_websocket_message
 
 
-@logger.inject_lambda_context(log_event=False)  # Don't log full event to reduce log volume
+@logger.inject_lambda_context(log_event=False)
 def lambda_handler(event, context):
     """
     Intent detection lambda.
@@ -34,8 +36,7 @@ def lambda_handler(event, context):
             logger.warning("Missing message in request", extra={"connection_id": connection_id})
             raise ValueError("Message is required")
 
-        client = openai()
-        embedding_response = client.embeddings.create(input=message, model="text-embedding-3-small")
+        embedding_response = openai().embeddings.create(input=message, model=EMBEDDING_MODEL)
         embedding = embedding_response.data[0].embedding
 
         intent = predict_intent(embedding)
@@ -45,6 +46,7 @@ def lambda_handler(event, context):
         )
 
         normalized_query = normalize_query(message)
+        query_id = str(uuid4())
 
         match intent:
             case Intent.GENERAL.value:
@@ -52,30 +54,42 @@ def lambda_handler(event, context):
                     connection_id,
                     domain_name,
                     stage,
+                    message,
                     normalized_query,
                     course_name,
                     model,
                     prioritize_instructor,
+                    embedding,
+                    intent,
+                    query_id,
                 )
             case Intent.SUMMARIZE.value:
                 return summarize.chat(
                     connection_id,
                     domain_name,
                     stage,
+                    message,
                     normalized_query,
                     course_name,
                     model,
                     prioritize_instructor,
+                    embedding,
+                    intent,
+                    query_id,
                 )
             case Intent.OVERVIEW.value:
                 return overview.chat(
                     connection_id,
                     domain_name,
                     stage,
+                    message,
                     normalized_query,
                     course_name,
                     model,
                     prioritize_instructor,
+                    embedding,
+                    intent,
+                    query_id,
                 )
             case _:
                 logger.warning(

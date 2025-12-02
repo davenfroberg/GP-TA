@@ -55,6 +55,7 @@ export default function PiazzaChat() {
   const scrollTimeoutRef = useRef<number | null>(null);
   const shouldAutoScrollRef = useRef<boolean>(true);
   const tabScrollPositionsRef = useRef<Map<number, number>>(new Map());
+  const responseTimeoutRef = useRef<Map<number, number>>(new Map());
 
   // Memoized derived state
   const activeTab = useMemo(() =>
@@ -302,6 +303,12 @@ export default function PiazzaChat() {
       };
       ws.onerror = (err) => {
         console.error(`WebSocket error for tab ${tabId}`, err);
+        // Clear timeout on error
+        const timeout = responseTimeoutRef.current.get(tabId);
+        if (timeout) {
+          clearTimeout(timeout);
+          responseTimeoutRef.current.delete(tabId);
+        }
         const assistantId = currentAssistantIdRef.current.get(tabId);
         if (assistantId) {
           updateAssistantMessage(tabId, "Something went wrong, please try again!");
@@ -324,6 +331,11 @@ export default function PiazzaChat() {
         }
       });
       wsConnectionsRef.current.clear();
+      // Clean up all timeouts on unmount
+      responseTimeoutRef.current.forEach((timeout) => {
+        clearTimeout(timeout);
+      });
+      responseTimeoutRef.current.clear();
     };
   }, []);
 
@@ -366,6 +378,12 @@ export default function PiazzaChat() {
 
     switch (data.type) {
       case "chat_done":
+        // Clear timeout on completion
+        const doneTimeoutId = responseTimeoutRef.current.get(tabId);
+        if (doneTimeoutId) {
+          clearTimeout(doneTimeoutId);
+          responseTimeoutRef.current.delete(tabId);
+        }
         messageBufferRef.current.delete(tabId);
         setTabLoading(tabId, false);
 
@@ -394,15 +412,29 @@ export default function PiazzaChat() {
       case "prompt":
         break;
       case "chat_chunk":
+        // Clear timeout when we receive actual content
+        const chunkTimeoutId = responseTimeoutRef.current.get(tabId);
+        if (chunkTimeoutId) {
+          clearTimeout(chunkTimeoutId);
+          responseTimeoutRef.current.delete(tabId);
+        }
         const currentBuffer = messageBufferRef.current.get(tabId) || "";
         const newBuffer = currentBuffer + data.message;
         messageBufferRef.current.set(tabId, newBuffer);
         updateAssistantMessage(tabId, newBuffer);
         break;
       case "progress_update":
+        // Clear timeout on progress updates (indicates server is responding)
+        const progressTimeoutId = responseTimeoutRef.current.get(tabId);
+        if (progressTimeoutId) {
+          clearTimeout(progressTimeoutId);
+          responseTimeoutRef.current.delete(tabId);
+        }
         updateAssistantMessage(tabId, data.message);
         break;
       case "chat_start":
+        // Don't clear timeout on chat_start - this is just an acknowledgment
+        // The timeout should remain active until we get actual content or completion
         messageBufferRef.current.set(tabId, "");
         updateAssistantMessage(tabId, "");
         setTabLoading(tabId, true);
@@ -635,6 +667,27 @@ export default function PiazzaChat() {
     // Set loading state immediately when starting to send
     setTabLoading(activeTabId, true);
 
+    // Clear any existing timeout for this tab
+    const existingTimeout = responseTimeoutRef.current.get(activeTabId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      responseTimeoutRef.current.delete(activeTabId);
+    }
+
+    // Set a 20-second timeout for response
+    // Capture tabId in closure to ensure we use the correct tab even if user switches
+    const tabIdForTimeout = activeTabId;
+    const timeoutId = window.setTimeout(() => {
+      // Double-check the timeout still exists (wasn't cleared) and matches
+      const currentTimeout = responseTimeoutRef.current.get(tabIdForTimeout);
+      if (currentTimeout === timeoutId) {
+        updateAssistantMessage(tabIdForTimeout, "Request timed out. Please try again.");
+        setTabLoading(tabIdForTimeout, false);
+        responseTimeoutRef.current.delete(tabIdForTimeout);
+      }
+    }, 20000);
+    responseTimeoutRef.current.set(activeTabId, timeoutId);
+
     const ws = getOrCreateWebSocket(activeTabId);
 
     const sendToWebSocket = () => {
@@ -648,6 +701,12 @@ export default function PiazzaChat() {
         }));
       } catch (error) {
         console.error("Failed to send message:", error);
+        // Clear timeout on error
+        const timeout = responseTimeoutRef.current.get(activeTabId);
+        if (timeout) {
+          clearTimeout(timeout);
+          responseTimeoutRef.current.delete(activeTabId);
+        }
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
         setTabLoading(activeTabId, false); // Stop loading on error
       }
@@ -657,6 +716,12 @@ export default function PiazzaChat() {
       sendToWebSocket();
     } else if (ws.readyState === WebSocket.CONNECTING) {
       const connectionTimeout = setTimeout(() => {
+        // Clear response timeout on connection timeout
+        const timeout = responseTimeoutRef.current.get(activeTabId);
+        if (timeout) {
+          clearTimeout(timeout);
+          responseTimeoutRef.current.delete(activeTabId);
+        }
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
         setTabLoading(activeTabId, false); // Stop loading on timeout
       }, 10000);
@@ -667,11 +732,23 @@ export default function PiazzaChat() {
       }, { once: true });
 
       ws.addEventListener('error', () => {
+        // Clear response timeout on error
+        const timeout = responseTimeoutRef.current.get(activeTabId);
+        if (timeout) {
+          clearTimeout(timeout);
+          responseTimeoutRef.current.delete(activeTabId);
+        }
         clearTimeout(connectionTimeout);
         updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
         setTabLoading(activeTabId, false); // Stop loading on error
       }, { once: true });
     } else {
+      // Clear response timeout if WebSocket is not available
+      const timeout = responseTimeoutRef.current.get(activeTabId);
+      if (timeout) {
+        clearTimeout(timeout);
+        responseTimeoutRef.current.delete(activeTabId);
+      }
       updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
       setTabLoading(activeTabId, false); // Stop loading if WebSocket is not available
     }
@@ -735,6 +812,13 @@ export default function PiazzaChat() {
       messageBufferRef.current.delete(tabId);
       currentAssistantIdRef.current.delete(tabId);
       tabScrollPositionsRef.current.delete(tabId); // Clean up scroll position
+
+      // Clean up timeout for closed tab
+      const timeout = responseTimeoutRef.current.get(tabId);
+      if (timeout) {
+        clearTimeout(timeout);
+        responseTimeoutRef.current.delete(tabId);
+      }
 
       // Clean up loading state for closed tab
       setTabLoading(tabId, false);

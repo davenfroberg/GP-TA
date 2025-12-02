@@ -1,12 +1,19 @@
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import boto3
 from enums.WebSocketType import WebSocketType
 from utils.clients import dynamo, openai, pinecone
-from utils.constants import COURSES, PINECONE_INDEX_NAME
+from utils.constants import (
+    CHUNKS_TABLE_NAME,
+    COURSES,
+    EMBEDDING_MODEL,
+    PINECONE_INDEX_NAME,
+    QUERIES_TABLE_NAME,
+)
 from utils.logger import logger
-from utils.utils import send_websocket_message
+from utils.utils import save_student_query, send_websocket_message
 
 CHUNKS_TO_USE = 9
 CLOSENESS_THRESHOLD = 0.35
@@ -35,7 +42,7 @@ class ContextRetriever:
 
     def __init__(self):
         dynamodb = dynamo()
-        self.table = dynamodb.Table("piazza-chunks")
+        self.table = dynamodb.Table(CHUNKS_TABLE_NAME)
 
     def get_answer_context(self, parent_id: str, chunk_id: str) -> list[str]:
         """Retrieve context for answer chunks."""
@@ -437,10 +444,14 @@ def chat(
     connection_id: str,
     domain_name: str,
     stage: str,
+    raw_query: str,
     query: str,
     course_name: str,
     gpt_model: str,
     prioritize_instructor: bool,
+    embedding: list[float],
+    intent: str,
+    query_id: str,
 ) -> dict[str, int]:
     """Main function to handle chat requests."""
 
@@ -448,6 +459,12 @@ def chat(
     apigw_management = boto3.client(
         "apigatewaymanagementapi", endpoint_url=f"https://{domain_name}/{stage}"
     )
+
+    start_time = time.time()
+    course_id = None
+    needs_more_context = False
+    top_chunks = []
+    citations = []
 
     try:
         if not query or not course_name:
@@ -613,5 +630,48 @@ def chat(
                 "type": WebSocketType.DONE.value,
             },
         )
+
+        # Save query to DynamoDB
+        if course_id:
+            table = dynamo().Table(QUERIES_TABLE_NAME)
+            processing_time_ms = int((time.time() - start_time) * 1000)
+
+            # Calculate chunk scores
+            top_chunk_scores = (
+                [chunk.get("_score", 0.0) for chunk in top_chunks] if top_chunks else []
+            )
+            top_chunk_score = top_chunk_scores[0] if top_chunk_scores else None
+            avg_chunk_score = (
+                sum(top_chunk_scores) / len(top_chunk_scores) if top_chunk_scores else None
+            )
+
+            # Extract citation post numbers
+            citation_post_numbers = [
+                citation.get("post_number")
+                for citation in citations
+                if citation.get("post_number") is not None
+            ]
+
+            save_student_query(
+                table=table,
+                course_id=course_id,
+                query_id=query_id,
+                raw_query=raw_query,
+                normalized_query=query,
+                embedding=embedding,
+                embedding_model=EMBEDDING_MODEL,
+                intent=intent,
+                gpt_model=gpt_model,
+                connection_id=connection_id,
+                processing_time_ms=processing_time_ms,
+                prioritize_instructor=prioritize_instructor,
+                needs_more_context=needs_more_context,
+                num_chunks_retrieved=len(top_chunks),
+                top_chunk_score=top_chunk_score,
+                avg_chunk_score=avg_chunk_score,
+                top_chunk_scores=top_chunk_scores if top_chunk_scores else None,
+                num_citations=len(citations),
+                citation_post_numbers=citation_post_numbers if citation_post_numbers else None,
+            )
 
     return {"statusCode": 200}

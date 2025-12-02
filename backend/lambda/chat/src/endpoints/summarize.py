@@ -6,10 +6,10 @@ from zoneinfo import ZoneInfo
 import boto3
 from botocore.exceptions import ClientError
 from enums.WebSocketType import WebSocketType
-from utils.clients import apigw, openai
-from utils.constants import COURSES, POSTS_TABLE_NAME
+from utils.clients import apigw, dynamo, openai
+from utils.constants import COURSES, EMBEDDING_MODEL, POSTS_TABLE_NAME, QUERIES_TABLE_NAME
 from utils.logger import logger
-from utils.utils import send_websocket_message
+from utils.utils import save_student_query, send_websocket_message
 
 dynamodb = boto3.resource("dynamodb")
 posts_table = dynamodb.Table(POSTS_TABLE_NAME)
@@ -119,14 +119,21 @@ def chat(
     connection_id: str,
     domain_name: str,
     stage: str,
+    raw_query: str,
     query: str,
     course_name: str,
     gpt_model: str,
     prioritize_instructor: bool,
+    embedding: list[float],
+    intent: str,
+    query_id: str,
 ) -> dict[str, int]:
     apigw_management = apigw(domain_name, stage)
 
+    start_time = time.time()
+    course_id = None
     days = 2
+    summaries = []
 
     try:
         if not query or not course_name:
@@ -217,5 +224,26 @@ def chat(
             connection_id,
             {"message": "Finished streaming", "type": WebSocketType.DONE.value},
         )
+
+        # Save query to DynamoDB
+        if course_id:
+            table = dynamo().Table(QUERIES_TABLE_NAME)
+            processing_time_ms = int((time.time() - start_time) * 1000)
+
+            save_student_query(
+                table=table,
+                course_id=course_id,
+                query_id=query_id,
+                raw_query=raw_query,
+                normalized_query=query,
+                embedding=embedding,
+                embedding_model=EMBEDDING_MODEL,
+                intent=intent,
+                gpt_model=gpt_model,
+                connection_id=connection_id,
+                processing_time_ms=processing_time_ms,
+                num_summaries_processed=len(summaries) if summaries else None,
+                summary_days=days,
+            )
 
     return {"statusCode": 200}
