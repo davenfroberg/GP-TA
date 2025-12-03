@@ -387,6 +387,24 @@ export default function PiazzaChat() {
         messageBufferRef.current.delete(tabId);
         setTabLoading(tabId, false);
 
+        // Ensure loading state on the assistant message itself is cleared
+        setTabs(prev => {
+          const assistantId = currentAssistantIdRef.current.get(tabId);
+          if (!assistantId) return prev;
+
+          return prev.map(tab => {
+            if (tab.id !== tabId) return tab;
+
+            const updatedMessages = tab.messages.map(m =>
+              m.role === "assistant" && m.id === assistantId
+                ? { ...m, isLoading: false }
+                : m
+            );
+
+            return { ...tab, messages: updatedMessages };
+          });
+        });
+
         // Handle needs_more_context flag
         if (data.needs_more_context !== undefined) {
           setTabs(prev => {
@@ -609,7 +627,7 @@ export default function PiazzaChat() {
 
         const updatedMessages = tab.messages.map(m =>
           m.role === "assistant" && m.id === assistantId
-            ? { ...m, text }
+            ? { ...m, text, isLoading: false }
             : m
         );
 
@@ -656,7 +674,8 @@ export default function PiazzaChat() {
     const assistantMsg: Message = {
       id: assistantMsgId,
       role: "assistant",
-      text: "Finding relevant Piazza posts..."
+      text: "Finding relevant Piazza posts...",
+      isLoading: true
     };
 
     currentAssistantIdRef.current.set(activeTabId, assistantMsgId);

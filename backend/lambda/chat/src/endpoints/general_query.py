@@ -423,7 +423,7 @@ def create_system_prompt() -> str:
         "- The most relevant context comes first and is labeled as such. Prioritize using the most relevant context.\n"
         "- DO NOT use context just because it mentions similar keywords. The context must actually answer or help answer the question.\n"
         "- If multiple pieces of context conflict, prioritize the most recent and most highly ranked context.\n\n"
-        "- Use exclusively the context provided to answer the question and ONLY the context. Do not use your training data to answer the question."
+        "- Use exclusively the context provided to answer the question and ONLY the context. Never use your training data to answer the question."
         "## Insufficient Context Handling\n"
         "- If the context contains some relevant information but not enough for a complete answer, provide what you can using ONLY the context. Do not ask them to provide you more context. Set NOT_ENOUGH_CONTEXT=true.\n"
         "- If there is absolutely no relevant information, tell the user there is not enough information on Piazza to answer their question. Do not ask them to provide you more context. Set NOT_ENOUGH_CONTEXT=true.\n"
@@ -489,13 +489,6 @@ def chat(
         )
         context = format_context(context_chunks, citation_map, post_to_post_number)
         prompt = f"Context:\n{context}\n\nUser's Question: {query}\nAnswer:"
-
-        # Send progress update
-        send_websocket_message(
-            apigw_management,
-            connection_id,
-            {"message": "Thinking of a response...", "type": WebSocketType.PROGRESS_UPDATE.value},
-        )
 
         openai_client = openai()
         stream = openai_client.responses.create(

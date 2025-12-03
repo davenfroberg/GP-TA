@@ -1,7 +1,6 @@
 import json
 from uuid import uuid4
 
-from endpoints import general_query, overview, summarize
 from enums.Intent import Intent
 from enums.WebSocketType import WebSocketType
 from predict_intent import predict_intent  # type: ignore ; b/c this is in lambda layer
@@ -50,6 +49,8 @@ def lambda_handler(event, context):
 
         match intent:
             case Intent.GENERAL.value:
+                from endpoints import general_query
+
                 return general_query.chat(
                     connection_id,
                     domain_name,
@@ -64,6 +65,8 @@ def lambda_handler(event, context):
                     query_id,
                 )
             case Intent.SUMMARIZE.value:
+                from endpoints import summarize
+
                 return summarize.chat(
                     connection_id,
                     domain_name,
@@ -78,6 +81,8 @@ def lambda_handler(event, context):
                     query_id,
                 )
             case Intent.OVERVIEW.value:
+                from endpoints import overview
+
                 return overview.chat(
                     connection_id,
                     domain_name,

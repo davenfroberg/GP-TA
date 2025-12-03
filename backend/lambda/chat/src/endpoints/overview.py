@@ -46,13 +46,6 @@ def chat(
 
         course_id = COURSES[course_name]
 
-        # Send progress update
-        send_websocket_message(
-            apigw_management,
-            connection_id,
-            {"message": "Thinking of a response...", "type": WebSocketType.PROGRESS_UPDATE.value},
-        )
-
         prompt = f"User's Question: {query}"
 
         openai_client = openai()

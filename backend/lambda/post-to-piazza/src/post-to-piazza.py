@@ -2,6 +2,7 @@ import json
 
 import boto3
 from botocore.exceptions import ClientError
+from piazza_api import Piazza
 from utils.constants import AWS_REGION_NAME, COURSE_TO_ID, SECRETS
 from utils.logger import logger
 
@@ -155,13 +156,15 @@ def lambda_handler(event, context):
                 ),
             }
 
-        # p = Piazza()
-        # p.user_login(email=username, password=password)
-        # piazza_network = p.network(network)
-        # post_info = piazza_network.create_post(post_type, post_folders, post_subject, post_content, anonymous=anonymous)
+        p = Piazza()
+        p.user_login(email=username, password=password)
+        piazza_network = p.network(network)
+        post_info = piazza_network.create_post(
+            post_type, post_folders, post_subject, post_content, anonymous=anonymous
+        )
 
-        # post_number = post_info['nr']
-        # post_link = f"https://piazza.com/class/{network}/post/{post_number}"
+        post_number = post_info["nr"]
+        post_link = f"https://piazza.com/class/{network}/post/{post_number}"
 
         logger.info(
             "Post creation request processed successfully",
@@ -180,8 +183,8 @@ def lambda_handler(event, context):
                 {
                     "success": True,
                     "message": "Post created successfully",
-                    # 'post_link': post_link,
-                    # 'post_number': post_number
+                    "post_link": post_link,
+                    "post_number": post_number,
                 }
             ),
         }

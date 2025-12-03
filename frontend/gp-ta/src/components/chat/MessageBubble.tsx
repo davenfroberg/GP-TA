@@ -15,11 +15,11 @@ interface MessageBubbleProps extends Message {
 }
 
 // Memoized Citation Component
-const CitationItem = memo(({ 
-  citation, 
-  isVisible, 
+const CitationItem = memo(({
+  citation,
+  isVisible,
   shouldAnimate,
-  themeClasses 
+  themeClasses
 }: {
   citation: any;
   isVisible: boolean;
@@ -28,7 +28,7 @@ const CitationItem = memo(({
 }) => (
   <div
     className={`${
-      shouldAnimate 
+      shouldAnimate
         ? `transition-all duration-300 ease-out transform ${
             isVisible
               ? 'opacity-100 translate-y-0'
@@ -58,10 +58,10 @@ const CitationItem = memo(({
 CitationItem.displayName = 'CitationItem';
 
 // In-line Citation Component
-const InlineCitation = memo(({ 
-  postNumber, 
-  citation, 
-  themeClasses 
+const InlineCitation = memo(({
+  postNumber,
+  citation,
+  themeClasses
 }: {
   postNumber: string;
   citation?: any;
@@ -70,24 +70,24 @@ const InlineCitation = memo(({
   if (!citation) {
     return <span className="text-gray-400">@{postNumber}</span>;
   }
-  
+
   const citationUrl = citation?.url;
-  
+
   if (!citationUrl) {
     return <span className="text-gray-400">@{postNumber}</span>;
   }
-  
+
   // Ensure URL is absolute and valid
   let absoluteUrl = citationUrl;
   if (!absoluteUrl.startsWith('http://') && !absoluteUrl.startsWith('https://')) {
     absoluteUrl = `https://${absoluteUrl}`;
   }
-  
+
   // Validate URL before rendering
   if (!absoluteUrl || absoluteUrl === '#' || absoluteUrl === window.location.href) {
     return <span className="text-gray-400">@{postNumber}</span>;
   }
-  
+
   return (
     <a
       href={absoluteUrl}
@@ -116,13 +116,13 @@ InlineCitation.displayName = 'InlineCitation';
 // inside code blocks. We'll do a simple check to avoid common code block patterns.
 function processCitations(text: string, citationMap?: Record<string, any>): string {
   if (!citationMap) return text;
-  
+
   // Split text by code blocks to avoid processing citations inside them
   const codeBlockRegex = /```[\s\S]*?```|`[^`]+`/g;
   const parts: Array<{ text: string; isCode: boolean }> = [];
   let lastIndex = 0;
   let match;
-  
+
   // Find all code blocks
   while ((match = codeBlockRegex.exec(text)) !== null) {
     // Add text before code block
@@ -133,18 +133,18 @@ function processCitations(text: string, citationMap?: Record<string, any>): stri
     parts.push({ text: match[0], isCode: true });
     lastIndex = match.index + match[0].length;
   }
-  
+
   // Add remaining text
   if (lastIndex < text.length) {
     parts.push({ text: text.substring(lastIndex), isCode: false });
   }
-  
+
   // Process only non-code parts
   return parts.map(part => {
     if (part.isCode) {
       return part.text; // Keep code blocks as-is
     }
-    
+
     // Match citation patterns like @123, @456, etc.
     // Format: @ followed by one or more digits
     return part.text.replace(/@(\d+)/g, (match, postNum, offset, string) => {
@@ -154,33 +154,34 @@ function processCitations(text: string, citationMap?: Record<string, any>): stri
       if (before && /[a-zA-Z0-9]/.test(before)) {
         return match;
       }
-      
+
       // Look up citation by post number (as string key)
       const citation = citationMap[postNum];
-      
+
       if (citation && citation.url) {
         // Replace with a markdown link using a special URL format
         // Format: @123 -> [@123](#citation-123) - we'll detect this in the link handler
         return `[@${postNum}](#citation-${postNum})`;
       }
-      
+
       // Citation not found - return plain text without link
       return match;
     });
   }).join('');
 }
 
-function MessageBubble({ 
+function MessageBubble({
   id,
-  role, 
-  text, 
-  course, 
-  citations, 
+  role,
+  text,
+  course,
+  citations,
   citationMap,
   needsMoreContext,
   notificationCreated,
   notificationLoading,
-  themeClasses, 
+  isLoading,
+  themeClasses,
   isFirstMessage,
   onNotifyMe,
   onPostToPiazza
@@ -199,7 +200,7 @@ function MessageBubble({
     code({ node, className, children, ...props }: any) {
       const match = /language-(\w+)/.exec(className || '');
       const isInline = !match;
-      
+
       return !isInline ? (
         <SyntaxHighlighter
           style={tomorrow as any}
@@ -210,8 +211,8 @@ function MessageBubble({
           {String(children).replace(/\n$/, '')}
         </SyntaxHighlighter>
       ) : (
-        <code 
-          className={`px-1 py-0.5 rounded text-sm ${themeClasses.inlineCode}`} 
+        <code
+          className={`px-1 py-0.5 rounded text-sm ${themeClasses.inlineCode}`}
           {...props}
         >
           {children}
@@ -247,7 +248,7 @@ function MessageBubble({
       // Handle empty or invalid hrefs first
       if (!href || href === '#' || href.trim() === '') {
         // Check if this might be a citation that wasn't processed correctly
-        const textContent = typeof children === 'string' ? children : 
+        const textContent = typeof children === 'string' ? children :
                            (Array.isArray(children) ? children.join('') : String(children));
         const citationMatch = textContent.match(/^@(\d+)$/);
         if (citationMatch && citationMap) {
@@ -266,12 +267,12 @@ function MessageBubble({
         // Not a citation, just return the text without a link
         return <span className={themeClasses.link}>{children}</span>;
       }
-      
+
       // Check if this is a citation link (using #citation-<post_number> format)
       if (href && href.startsWith('#citation-')) {
         const postNumber = href.replace('#citation-', '');
         const citation = (citationMap as Record<string, any>)?.[postNumber];
-        
+
         if (citation?.url) {
           return (
             <InlineCitation
@@ -283,15 +284,15 @@ function MessageBubble({
         }
         return <span className="text-gray-400">@{postNumber}</span>;
       }
-      
+
       // For regular links, ensure href is valid
       if (href === window.location.href) {
         return <span className={themeClasses.link}>{children}</span>;
       }
-      
+
       return (
-        <a 
-          href={href} 
+        <a
+          href={href}
           target="_blank"
           rel="noopener noreferrer"
           className={`underline ${themeClasses.link}`}
@@ -325,7 +326,7 @@ function MessageBubble({
   }), [themeClasses, citationMap]);
 
 
-  const bubbleClasses = useMemo(() => 
+  const bubbleClasses = useMemo(() =>
     `break-words p-3 rounded-xl shadow-sm border relative group ${
       isUser
         ? `${themeClasses.userBubble} rounded-br-2xl`
@@ -333,7 +334,7 @@ function MessageBubble({
     }`, [isUser, themeClasses.userBubble, themeClasses.assistantBubble]
   );
 
-  const containerClasses = useMemo(() => 
+  const containerClasses = useMemo(() =>
     `flex ${isUser ? "justify-end" : "justify-start"} ${isFirstMessage ? "mt-6" : ""}`,
     [isUser, isFirstMessage]
   );
@@ -341,21 +342,27 @@ function MessageBubble({
   return (
     <div className={containerClasses}>
       <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-[80%]`}>
-        <div className={bubbleClasses}>
-          <div className="text-sm leading-5">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
-            >
-              {processedText}
-            </ReactMarkdown>
+        {role === "assistant" && isLoading ? (
+          <div className="text-sm font-medium text-blue-400/90 animate-pulse">
+            Finding relevant Piazza posts…
           </div>
-          {isUser && course && (
-            <div className={`absolute bottom-full right-0 mb-2 px-2 py-1 ${themeClasses.tooltip} text-xs rounded opacity-70 whitespace-nowrap pointer-events-none z-10`}>
-              {course}
+        ) : (
+          <div className={bubbleClasses}>
+            <div className="text-sm leading-5">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+              >
+                {processedText}
+              </ReactMarkdown>
             </div>
-          )}
-        </div>
+            {isUser && course && (
+              <div className={`absolute bottom-full right-0 mb-2 px-2 py-1 ${themeClasses.tooltip} text-xs rounded opacity-70 whitespace-nowrap pointer-events-none z-10`}>
+                {course}
+              </div>
+            )}
+          </div>
+        )}
         {/* Needs More Context Buttons */}
         {!isUser && needsMoreContext && (
           <div className="mt-3 flex gap-2 w-full">
@@ -406,7 +413,7 @@ function MessageBubble({
             </button>
           </div>
         )}
-        
+
         {/* Citations - Collapsible */}
         {!isUser && (citations?.length ?? 0) > 0 && (
           <div className="mt-2 w-full">
@@ -449,6 +456,7 @@ export default memo(MessageBubble, (prevProps, nextProps) => {
     prevProps.needsMoreContext === nextProps.needsMoreContext &&
     prevProps.notificationCreated === nextProps.notificationCreated &&
     prevProps.notificationLoading === nextProps.notificationLoading &&
+    prevProps.isLoading === nextProps.isLoading &&
     JSON.stringify(prevProps.citations) === JSON.stringify(nextProps.citations) &&
     JSON.stringify(prevProps.citationMap) === JSON.stringify(nextProps.citationMap) &&
     prevProps.themeClasses.userBubble === nextProps.themeClasses.userBubble &&
