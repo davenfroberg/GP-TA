@@ -13,7 +13,7 @@ _secrets_client = None
 _openai_client = None
 
 
-def get_ssm_client():
+def get_ssm_client() -> boto3.client:
     """Get or create Systems Manager Client."""
     global _secrets_client
     if _secrets_client is None:
@@ -21,9 +21,8 @@ def get_ssm_client():
     return _secrets_client
 
 
-def get_secret_api_key(secret_name: str) -> str:
+def get_secret_api_key(client: boto3.client, secret_name: str) -> str:
     """Retrieve API key from AWS Parameter Store."""
-    client = get_ssm_client()
 
     try:
         logger.debug("Retrieving secret from Parameter Store", extra={"secret_name": secret_name})
@@ -43,12 +42,12 @@ def get_secret_api_key(secret_name: str) -> str:
         raise
 
 
-def get_openai_client():
+def get_openai_client() -> OpenAI:
     """Get or create OpenAI client."""
     global _openai_client
     if _openai_client is None:
         logger.debug("Initializing OpenAI client")
-        openai_api_key = get_secret_api_key(SECRETS["OPENAI"])
+        openai_api_key = get_secret_api_key(get_ssm_client(), SECRETS["OPENAI"])
         _openai_client = OpenAI(api_key=openai_api_key)
         logger.debug("OpenAI client initialized successfully")
     return _openai_client
@@ -80,7 +79,7 @@ def create_system_prompt() -> str:
 
 
 @logger.inject_lambda_context(log_event=True)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     try:
         logger.info("Processing generate-post request")
 

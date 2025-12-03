@@ -1,3 +1,4 @@
+import boto3
 from config.constants import (
     CHUNKS_TABLE_NAME,
     DYNAMO_BATCH_GET_SIZE,
@@ -5,20 +6,26 @@ from config.constants import (
     PINECONE_NAMESPACE,
 )
 from config.logger import logger
+from pinecone import Pinecone
 from scrapers.core.TextProcessor import TextProcessor
 
 
 class ChunkManager:
     """Manages chunk creation, deduplication, and storage"""
 
-    def __init__(self, pinecone_index, dynamodb, chunk_dynamo_table):
+    def __init__(
+        self,
+        pinecone_index: Pinecone,
+        dynamodb: boto3.resource,
+        chunk_dynamo_table: boto3.resource.Table,
+    ):
         self.pinecone_index = pinecone_index
         self.dynamodb = dynamodb
         self.chunk_dynamo_table = chunk_dynamo_table
         self.pinecone_batch = []
         self.chunk_count = 0
 
-    def create_chunk(self, blob, chunk_index, chunk_text, course_id):
+    def create_chunk(self, blob: dict, chunk_index: int, chunk_text: str, course_id: str) -> dict:
         """Create a chunk dictionary from blob data"""
         content_hash = TextProcessor.compute_hash(chunk_text)
 
@@ -40,7 +47,7 @@ class ChunkManager:
             "chunk_text": chunk_text,
         }
 
-    def process_post_chunks(self, post_chunks):
+    def process_post_chunks(self, post_chunks: list[dict]) -> None:
         """Process chunks for a single post with deduplication"""
         for i in range(0, len(post_chunks), DYNAMO_BATCH_GET_SIZE):
             post_batch = post_chunks[i : i + DYNAMO_BATCH_GET_SIZE]
@@ -54,7 +61,7 @@ class ChunkManager:
             if chunks_to_insert:
                 self._store_chunks(chunks_to_insert)
 
-    def _get_existing_chunks(self, batch):
+    def _get_existing_chunks(self, batch: list[dict]) -> dict[str, dict]:
         """Get existing chunks from DynamoDB"""
         keys_to_check = [{"parent_id": chunk["parent_id"], "id": chunk["id"]} for chunk in batch]
 
@@ -64,7 +71,7 @@ class ChunkManager:
 
         return {item["id"]: item for item in response["Responses"].get(CHUNKS_TABLE_NAME, [])}
 
-    def _filter_new_chunks(self, batch, existing_chunks):
+    def _filter_new_chunks(self, batch: list[dict], existing_chunks: dict[str, dict]) -> list[dict]:
         """Filter out chunks that haven't changed"""
         chunks_to_insert = []
 
@@ -84,7 +91,7 @@ class ChunkManager:
 
         return chunks_to_insert
 
-    def _store_chunks(self, chunks_to_insert):
+    def _store_chunks(self, chunks_to_insert: list[dict]) -> None:
         """Store chunks in DynamoDB"""
         with self.chunk_dynamo_table.batch_writer() as batch_writer:
             for chunk in chunks_to_insert:
@@ -95,7 +102,7 @@ class ChunkManager:
         if self.pinecone_batch:
             self._flush_pinecone_batch()
 
-    def _flush_pinecone_batch(self):
+    def _flush_pinecone_batch(self) -> None:
         """Flush current batch to Pinecone"""
         if self.pinecone_batch:
             self.pinecone_index.upsert_records(PINECONE_NAMESPACE, self.pinecone_batch)
@@ -104,7 +111,7 @@ class ChunkManager:
             )
             self.pinecone_batch = []
 
-    def finalize(self):
+    def finalize(self) -> int:
         """Flush any remaining chunks and return count"""
         self._flush_pinecone_batch()
         return self.chunk_count

@@ -45,7 +45,7 @@ def compute_notification_threshold(closest_score: float) -> float:
     return max(MIN_THRESHOLD, min(threshold, MAX_THRESHOLD))
 
 
-def create_notification(event):
+def create_notification(event: dict) -> dict:
     dynamo = boto3.resource("dynamodb")
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
     try:

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import boto3
 from config.constants import (
     COURSE_NAMES,
     DISCUSSION_TYPES,
@@ -14,22 +15,29 @@ from config.logger import logger
 from dto.AnnouncementPostConfig import AnnouncementPostConfig
 from dto.NotificationConfig import NotificationConfig
 from enums.UpdateType import UpdateType
+from scrapers.core.NotificationService import NotificationService
 
 
 class PostManager:
     """Manages Piazza posts, tracking content changes over time."""
 
-    def __init__(self, dynamo, posts_table, diffs_table, notification_service):
+    def __init__(
+        self,
+        dynamo: boto3.resource,
+        posts_table: boto3.resource.Table,
+        diffs_table: boto3.resource.Table,
+        notification_service: NotificationService,
+    ):
         self.dynamodb = dynamo
         self.posts_table = posts_table
         self.diffs_table = diffs_table
         self.notification_service = notification_service
 
-    def get_discussion_content(self, post, change_id):
+    def get_discussion_content(self, post: dict, change_id: str) -> str:
         # I can recurse through the entire tree structure which isn't super quick but there aren't gonna be enough discussions for it to really matter efficiency-wise
         logger.debug("Searching discussion tree", extra={"change_id": change_id})
 
-        def dfs(root):
+        def dfs(root: dict) -> str | bool:
             children = root.get("children", [])
             for child in children:
                 if child.get("type") not in DISCUSSION_TYPES:
@@ -50,7 +58,7 @@ class PostManager:
             logger.warning("Failed to find discussion", extra={"change_id": change_id})
             return ""
 
-    def get_post_content(self, change, post):
+    def get_post_content(self, change: dict, post: dict) -> tuple[str, str]:
         change_type = change.get("type")
         post_subject = None
         post_content = None
@@ -82,7 +90,9 @@ class PostManager:
         return (post_subject if post_subject else "", post_content)
 
     # process one change from the list of changes
-    def handle_individual_change(self, change, post, course_id, sequence):
+    def handle_individual_change(
+        self, change: dict, post: dict, course_id: str, sequence: int
+    ) -> bool:
         post_id = post.get("id")
         pk = f"{course_id}#{post_id}"
         sk = f"{self.now.isoformat()}#{sequence}"
@@ -106,7 +116,7 @@ class PostManager:
         return change_type in MAJOR_UPDATE_TYPES
 
     # set the last update time, last major update time
-    def set_update_times(self, post, course_id, had_major_update):
+    def set_update_times(self, post: dict, course_id: str, had_major_update: bool) -> None:
         post_id = post.get("id")
         key = {"course_id": course_id, "post_id": post_id}
 
@@ -131,7 +141,7 @@ class PostManager:
                 },
             )
 
-    def put_new_diffs(self, new_post, course_id, old_num_changes):
+    def put_new_diffs(self, new_post: dict, course_id: str, old_num_changes: int) -> None:
         new_change_log = new_post.get("change_log")
 
         # no changes if the lengths are the same
@@ -172,7 +182,7 @@ class PostManager:
 
         self.set_update_times(new_post, course_id, had_major_update)
 
-    def _should_notify(self, post):
+    def _should_notify(self, post: dict) -> bool:
         is_announcement = bool(post.get("config", {}).get("is_announcement", 0))
         post_creation_time = post.get("created")
 
@@ -188,7 +198,7 @@ class PostManager:
 
         return is_announcement and within_48_hours
 
-    def handle_new_post(self, post, course_id):
+    def handle_new_post(self, post: dict, course_id: str) -> None:
         post_id = post.get("id")
         change_log = post.get("change_log")
         is_announcement = bool(post.get("config").get("is_announcement", 0))
@@ -227,7 +237,7 @@ class PostManager:
 
             self.notification_service.send_email_notification(notification_config, announcement)
 
-    def handle_existing_post(self, old_post, new_post, course_id):
+    def handle_existing_post(self, old_post: dict, new_post: dict, course_id: str) -> None:
         old_num_changes = int(old_post.get("num_changes"))
         self.put_new_diffs(new_post, course_id, old_num_changes)
 
@@ -240,7 +250,7 @@ class PostManager:
             ExpressionAttributeValues={":nc": len(new_change_log)},
         )
 
-    def process_post(self, new_post, course_id):
+    def process_post(self, new_post: dict, course_id: str) -> None:
         # set global 'now' to have the same time throughout processing
         # Store in UTC for consistency with Piazza dates (which are in UTC)
         self.now = datetime.now(ZoneInfo("UTC"))

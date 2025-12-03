@@ -7,7 +7,7 @@ from scrapers.IncrementalScraper import IncrementalScraper
 
 @logger.inject_lambda_context(log_event=True)
 @metrics.log_metrics(capture_cold_start_metric=False)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     scrape_type = event.get("type") or "unknown"
     metrics.add_dimension(name="ScrapeType", value=scrape_type)
     metrics.add_metric(name="ScrapeRequests", unit=MetricUnit.Count, value=1)

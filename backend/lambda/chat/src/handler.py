@@ -11,7 +11,7 @@ from utils.utils import normalize_query, send_websocket_message
 
 
 @logger.inject_lambda_context(log_event=False)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     """
     Intent detection lambda.
     Decides what to do with the incoming message.
@@ -75,7 +75,6 @@ def lambda_handler(event, context):
                     normalized_query,
                     course_name,
                     model,
-                    prioritize_instructor,
                     embedding,
                     intent,
                     query_id,

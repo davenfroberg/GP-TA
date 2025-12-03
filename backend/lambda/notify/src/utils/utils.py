@@ -1,8 +1,9 @@
+import boto3
 from botocore.exceptions import ClientError
 from utils.logger import logger
 
 
-def get_secret_api_key(client, secret_name: str) -> str:
+def get_secret_api_key(client: boto3.client, secret_name: str) -> str:
     """Retrieve API key from AWS Parameter Store."""
     try:
         logger.debug("Retrieving secret from Parameter Store", extra={"secret_name": secret_name})

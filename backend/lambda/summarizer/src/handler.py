@@ -20,7 +20,7 @@ MAX_WORKERS = 10
 
 @logger.inject_lambda_context(log_event=True)
 @metrics.log_metrics(capture_cold_start_metric=False)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     items_to_process = []
 
     response = posts_table.scan(
@@ -75,7 +75,7 @@ def lambda_handler(event, context):
     }
 
 
-def summarize_post(post):
+def summarize_post(post: dict) -> None:
     pk = f"{post['course_id']}#{post['post_id']}"
 
     # Store timestamps in UTC for consistency with Piazza dates
@@ -179,7 +179,7 @@ def summarize_post(post):
     logger.info("Updated summary", extra={"post_key": pk})
 
 
-def needs_fresh_summary(post, current_time):
+def needs_fresh_summary(post: dict, current_time: datetime) -> bool:
     needs_new = post.get("needs_new_summary", False)
     last_summarized_str = post.get("summary_last_updated")
     summarization_range = 2  # days
@@ -205,7 +205,7 @@ def needs_fresh_summary(post, current_time):
     return needs_new or outside_of_range
 
 
-def format_diffs(diffs):
+def format_diffs(diffs: list[dict]) -> str:
     formatted = []
     for diff in diffs:
         timestamp = diff["timestamp"]
@@ -223,7 +223,7 @@ def format_diffs(diffs):
     return "\n".join(formatted)
 
 
-def call_openai(prompt_input):
+def call_openai(prompt_input: str) -> str:
     system_instructions = (
         "You are a backend summarization engine for a technical course forum. "
         "Your output is for a 'Catch Me Up' dashboard. The user should know what's been happening on the forum.\n"

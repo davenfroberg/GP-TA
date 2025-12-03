@@ -405,7 +405,7 @@ class NotificationService:
 
 
 @logger.inject_lambda_context(log_event=True)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     """Main Lambda handler"""
     try:
         service = NotificationService()
@@ -431,7 +431,3 @@ def lambda_handler(event, context):
     except Exception as e:
         logger.exception("Fatal error in lambda_handler")
         return {"statusCode": 500, "error": str(e)}
-
-
-if __name__ == "__main__":
-    lambda_handler(None, None)

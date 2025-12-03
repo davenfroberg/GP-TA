@@ -399,7 +399,7 @@ class PiazzaGmailProcessor:
 
 
 @logger.inject_lambda_context(log_event=True)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     """AWS Lambda entry point."""
     try:
         processor = PiazzaGmailProcessor()
@@ -409,7 +409,3 @@ def lambda_handler(event, context):
     except Exception as e:
         logger.exception("Fatal error in lambda_handler")
         return {"statusCode": 500, "body": json.dumps(f"Error processing messages: {str(e)}")}
-
-
-if __name__ == "__main__":
-    lambda_handler({}, None)

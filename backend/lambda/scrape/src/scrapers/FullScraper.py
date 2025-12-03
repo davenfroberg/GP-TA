@@ -11,7 +11,7 @@ class FullScraper(AbstractScraper):
     def __init__(self):
         super().__init__()
 
-    def scrape(self, event):
+    def scrape(self, event: dict) -> dict:
         try:
             course_id = event["course_id"]
         except Exception:
@@ -20,7 +20,7 @@ class FullScraper(AbstractScraper):
 
         self.scrape_course(course_id)
 
-    def scrape_course(self, course_id: str):
+    def scrape_course(self, course_id: str) -> dict:
         """Main scrape function"""
         # Skip ignored courses
         if course_id in IGNORED_COURSE_IDS:

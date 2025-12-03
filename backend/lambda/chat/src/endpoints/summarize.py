@@ -123,7 +123,6 @@ def chat(
     query: str,
     course_name: str,
     gpt_model: str,
-    prioritize_instructor: bool,
     embedding: list[float],
     intent: str,
     query_id: str,

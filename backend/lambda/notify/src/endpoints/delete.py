@@ -67,7 +67,7 @@ def delete_sent_notifications(user_query, course_id):
         raise
 
 
-def delete_notification(event):
+def delete_notification(event: dict) -> dict:
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
 
     headers = {"Content-Type": "application/json"}

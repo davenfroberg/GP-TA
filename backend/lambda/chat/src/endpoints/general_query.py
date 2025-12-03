@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import boto3
 from enums.WebSocketType import WebSocketType
-from utils.clients import dynamo, openai, pinecone
+from utils.clients import apigw, dynamo, openai, pinecone
 from utils.constants import (
     CHUNKS_TABLE_NAME,
     COURSES,
@@ -40,7 +40,7 @@ def get_top_chunks(query: str, course_id: str) -> list[dict]:
 class ContextRetriever:
     """Handles context retrieval from DynamoDB for different content types."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         dynamodb = dynamo()
         self.table = dynamodb.Table(CHUNKS_TABLE_NAME)
 
@@ -226,7 +226,7 @@ class ContextRetriever:
         return all_context
 
 
-def get_context_retriever():
+def get_context_retriever() -> ContextRetriever:
     """Get or create context retriever instance."""
     global _context_retriever
     if _context_retriever is None:
@@ -236,8 +236,8 @@ def get_context_retriever():
 
 def format_context(
     context_chunks: list[tuple[str, str, str, int]],
-    citation_map: dict[str, dict[str, str]] = None,
-    post_to_post_number: dict[str, str] = None,
+    citation_map: dict[str, dict[str, str]] | None = None,
+    post_to_post_number: dict[str, str] | None = None,
 ) -> str:
     """Format context chunks into a readable string with relevance ranking and citation post numbers.
     citation_map maps post_number to citation, post_to_post_number maps root_id to post_number."""
@@ -456,9 +456,7 @@ def chat(
     """Main function to handle chat requests."""
 
     # Initialize API Gateway Management client
-    apigw_management = boto3.client(
-        "apigatewaymanagementapi", endpoint_url=f"https://{domain_name}/{stage}"
-    )
+    apigw_management = apigw(domain_name, stage)
 
     start_time = time.time()
     course_id = None

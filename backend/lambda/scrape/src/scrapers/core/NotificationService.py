@@ -12,14 +12,14 @@ from dto.NotificationConfig import NotificationConfig
 class HTMLTextExtractor(HTMLParser):
     """Extract plain text from HTML content"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.text = []
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         self.text.append(data)
 
-    def get_text(self):
+    def get_text(self) -> str:
         # Join and normalize whitespace
         text = "".join(self.text)
         text = re.sub(r"\s+", " ", text)
@@ -27,18 +27,20 @@ class HTMLTextExtractor(HTMLParser):
 
 
 class NotificationService:
-    def __init__(self):
+    def __init__(self) -> None:
         self.ssm_client = boto3.client("ssm")
         self.ses = boto3.client("ses", region_name=AWS_REGION_NAME)
 
     def send_email_notification(
-        self, config: NotificationConfig, announcement: AnnouncementPostConfig
+        self,
+        config: NotificationConfig,
+        announcement: AnnouncementPostConfig,
     ) -> bool:
         """Send email notification via SES"""
         subject = f"Piazza announcement @{announcement.post_number} for {announcement.course_name}"
 
-        text_body = self._build_text_body(announcement)
-        html_body = self._build_html_body(announcement)
+        text_body = NotificationService._build_text_body(announcement)
+        html_body = NotificationService._build_html_body(announcement)
 
         try:
             self.ses.send_email(
@@ -75,13 +77,14 @@ class NotificationService:
             )
             return False
 
-    def _sanitize_html_content(self, content: str) -> str:
+    @staticmethod
+    def _sanitize_html_content(content: str) -> str:
         """Convert Piazza redirect image URLs to direct CDN URLs"""
         # Decode HTML entities first
         content = html.unescape(content)
 
         # Convert Piazza redirect URLs to direct CDN URLs
-        def replace_image_src(match):
+        def replace_image_src(match: re.Match[str]) -> str:
             img_tag = match.group(0)
             # Extract the prefix parameter from redirect URL
             prefix_match = re.search(r'prefix=([^&"\'>\s]+)', img_tag)
@@ -109,11 +112,8 @@ class NotificationService:
 
         return content
 
-    def _has_images(self, content: str) -> bool:
-        """Check if content contains images"""
-        return bool(re.search(r"<img[^>]*>", content, re.IGNORECASE))
-
-    def _build_text_body(self, announcement: AnnouncementPostConfig) -> str:
+    @staticmethod
+    def _build_text_body(announcement: AnnouncementPostConfig) -> str:
         """Build plain text email body for course announcement"""
         post_url = f"https://piazza.com/class/{announcement.course_id}/post/{announcement.post_id}"
 
@@ -137,12 +137,13 @@ class NotificationService:
             f"- The GP-TA Team"
         )
 
-    def _build_html_body(self, announcement: AnnouncementPostConfig) -> str:
+    @staticmethod
+    def _build_html_body(announcement: AnnouncementPostConfig) -> str:
         """Build HTML email body for course announcement"""
         post_url = f"https://piazza.com/class/{announcement.course_id}/post/{announcement.post_id}"
 
         decoded_subject = html.unescape(announcement.post_subject)
-        decoded_content = self._sanitize_html_content(announcement.post_content)
+        decoded_content = NotificationService._sanitize_html_content(announcement.post_content)
 
         return f"""
                 <html>

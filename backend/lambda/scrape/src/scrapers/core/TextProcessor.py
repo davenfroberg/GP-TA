@@ -9,7 +9,7 @@ class TextProcessor:
     """Handles text cleaning and chunking operations"""
 
     @staticmethod
-    def clean_html_text(raw_html):
+    def clean_html_text(raw_html: str) -> str:
         """Clean HTML content and return plain text"""
         soup = BeautifulSoup(raw_html, "html.parser")
         text = soup.get_text(separator="\n")
@@ -18,13 +18,13 @@ class TextProcessor:
         return text.strip()
 
     @staticmethod
-    def split_sentences(text):
+    def split_sentences(text: str) -> list[str]:
         """Split text into sentences using punctuation"""
         sentences = re.split(r"(?<=[.!?])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
 
     @staticmethod
-    def generate_chunks(blob, chunk_size=CHUNK_SIZE_WORDS):
+    def generate_chunks(blob: dict, chunk_size: int = CHUNK_SIZE_WORDS) -> list[str]:
         """Generate text chunks from a blob with sentence overlap"""
         text = blob["content"]
         title = blob.get("title")
@@ -63,6 +63,6 @@ class TextProcessor:
         return chunks
 
     @staticmethod
-    def compute_hash(text):
+    def compute_hash(text: str) -> str:
         """Generate SHA256 hash of text content"""
         return hashlib.sha256(text.encode("utf-8")).hexdigest()

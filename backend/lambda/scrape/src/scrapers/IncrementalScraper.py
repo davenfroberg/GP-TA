@@ -53,7 +53,7 @@ class IncrementalScraper(AbstractScraper):
         logger.info("Fetched SQS messages", extra={"message_count": len(all_messages)})
         return all_messages
 
-    def scrape(self, event):
+    def scrape(self, event: dict) -> dict:
         """Main scrape function"""
         # get pending messages from SQS and group them by their course
         messages = self.process_sqs_messages()

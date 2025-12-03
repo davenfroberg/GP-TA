@@ -40,5 +40,5 @@ class AbstractScraper(ABC):
         self.post_manager = PostManager(dynamodb, posts_table, diffs_table, notification_service)
 
     @abstractmethod
-    def scrape(self, event):
+    def scrape(self, event: dict) -> dict:
         pass

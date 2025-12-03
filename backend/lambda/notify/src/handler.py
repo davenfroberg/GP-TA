@@ -5,7 +5,7 @@ from utils.logger import logger
 
 
 @logger.inject_lambda_context(log_event=True)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     method = event["requestContext"]["http"]["method"]
     logger.info("Processing notify request", extra={"method": method})
 

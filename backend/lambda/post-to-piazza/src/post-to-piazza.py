@@ -7,7 +7,7 @@ from utils.constants import AWS_REGION_NAME, COURSE_TO_ID, SECRETS
 from utils.logger import logger
 
 
-def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
+def get_secret_api_key(secret_name: str, region_name: str = AWS_REGION_NAME) -> str:
     """Get API key from AWS Parameter Store"""
     session = boto3.session.Session()
     client = session.client(service_name="ssm", region_name=region_name)
@@ -30,10 +30,10 @@ def get_secret_api_key(secret_name, region_name=AWS_REGION_NAME):
 
 
 def get_piazza_credentials(
-    username_secret=SECRETS["PIAZZA_USER"],
-    password_secret=SECRETS["PIAZZA_PASS"],
-    region_name=AWS_REGION_NAME,
-):
+    username_secret: str = SECRETS["PIAZZA_USER"],
+    password_secret: str = SECRETS["PIAZZA_PASS"],
+    region_name: str = AWS_REGION_NAME,
+) -> tuple[str, str]:
     """Get Piazza username and password from AWS Parameter Store"""
     session = boto3.session.Session()
     client = session.client(service_name="ssm", region_name=region_name)
@@ -55,7 +55,7 @@ def get_piazza_credentials(
 
 
 @logger.inject_lambda_context(log_event=True)
-def lambda_handler(event, context):
+def lambda_handler(event: dict, context: dict) -> dict:
     # Handle CORS preflight requests
     if event.get("httpMethod") == "OPTIONS":
         return {
@@ -88,7 +88,7 @@ def lambda_handler(event, context):
         # Extract parameters from the request body
         api_key = body.get("api_key")
         try:
-            EXPECTED_KEY = get_secret_api_key(SECRETS["API_KEY"])
+            expected_key = get_secret_api_key(SECRETS["API_KEY"])
         except Exception:
             logger.exception("Failed to retrieve API key from Parameter Store")
             return {
@@ -99,7 +99,7 @@ def lambda_handler(event, context):
                 ),
             }
 
-        if api_key != EXPECTED_KEY:
+        if api_key != expected_key:
             logger.warning("Invalid API key provided")
             return {
                 "statusCode": 403,

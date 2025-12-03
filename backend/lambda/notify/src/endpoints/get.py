@@ -5,7 +5,7 @@ from utils.constants import NOTIFICATIONS_TABLE_NAME
 from utils.logger import logger
 
 
-def get_notifications_from_dynamo():
+def get_notifications_from_dynamo() -> list[dict]:
     dynamo = boto3.resource("dynamodb")
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
 
