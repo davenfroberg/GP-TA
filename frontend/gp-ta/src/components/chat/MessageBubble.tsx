@@ -343,7 +343,7 @@ function MessageBubble({
     <div className={containerClasses}>
       <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-[80%]`}>
         {role === "assistant" && isLoading ? (
-          <div className="text-sm font-medium text-blue-400/90 animate-pulse">
+          <div className="text-sm font-medium text-blue-400/60 animate-shimmer">
             Finding relevant Piazza posts…
           </div>
         ) : (

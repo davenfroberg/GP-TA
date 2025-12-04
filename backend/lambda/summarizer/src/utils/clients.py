@@ -1,4 +1,5 @@
 from functools import cache
+from typing import Any
 
 import boto3
 from openai import OpenAI
@@ -7,12 +8,12 @@ from utils.utils import get_secret_api_key
 
 
 @cache
-def dynamo() -> boto3.resource:
+def dynamo() -> Any:
     return boto3.resource("dynamodb")
 
 
 @cache
-def ssm_manager() -> boto3.client:
+def ssm_manager() -> Any:
     return boto3.client("ssm", region_name=AWS_REGION_NAME)
 
 

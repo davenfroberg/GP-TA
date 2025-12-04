@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from zoneinfo import ZoneInfo
 
-import boto3
 from config.constants import (
     COURSE_NAMES,
     DISCUSSION_TYPES,
@@ -23,9 +23,9 @@ class PostManager:
 
     def __init__(
         self,
-        dynamo: boto3.resource,
-        posts_table: boto3.resource.Table,
-        diffs_table: boto3.resource.Table,
+        dynamo: Any,
+        posts_table: Any,
+        diffs_table: Any,
         notification_service: NotificationService,
     ):
         self.dynamodb = dynamo

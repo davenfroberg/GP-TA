@@ -14,3 +14,30 @@
 .animate-fadeIn {
   animation: fadeIn 150ms ease-out forwards;
 }
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    currentColor 0%,
+    currentColor 40%,
+    rgba(147, 197, 253, 1) 49%,
+    rgba(191, 219, 254, 1) 50%,
+    rgba(147, 197, 253, 1) 51%,
+    currentColor 60%,
+    currentColor 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.5s linear infinite;
+}

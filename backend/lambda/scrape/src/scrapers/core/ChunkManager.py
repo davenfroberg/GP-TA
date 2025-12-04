@@ -1,4 +1,5 @@
-import boto3
+from typing import Any
+
 from config.constants import (
     CHUNKS_TABLE_NAME,
     DYNAMO_BATCH_GET_SIZE,
@@ -16,8 +17,8 @@ class ChunkManager:
     def __init__(
         self,
         pinecone_index: Pinecone,
-        dynamodb: boto3.resource,
-        chunk_dynamo_table: boto3.resource.Table,
+        dynamodb: Any,
+        chunk_dynamo_table: Any,
     ):
         self.pinecone_index = pinecone_index
         self.dynamodb = dynamodb
