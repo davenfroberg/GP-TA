@@ -28,11 +28,11 @@
   background: linear-gradient(
     90deg,
     currentColor 0%,
-    currentColor 40%,
-    rgba(147, 197, 253, 1) 49%,
+    currentColor 38%,
+    rgb(140, 194, 255) 42%,
     rgba(191, 219, 254, 1) 50%,
-    rgba(147, 197, 253, 1) 51%,
-    currentColor 60%,
+    rgb(140, 194, 255) 42%,
+    currentColor 62%,
     currentColor 100%
   );
   background-size: 200% 100%;
