@@ -5,6 +5,8 @@ import PiazzaChat from './components/chat/PiazzaChat';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import ProtectedRoute from './components/ProtectedRoute';
+import TermsOfService from './components/static/TermsOfService';
+import PrivacyPolicy from './components/static/PrivacyPolicy';
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth();
@@ -33,6 +35,9 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+
+      <Route path="/terms" element={<TermsOfService />} />
+      <Route path="/privacy" element={<PrivacyPolicy />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -130,17 +130,21 @@ export default function Login() {
   };
 
   return (
-    <div className={`h-screen ${themeClasses.background} flex items-center justify-center p-4`}>
-      <div className={`w-full max-w-md p-8 rounded-3xl ${themeClasses.frostedCard} transition-all duration-300`}>
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 overflow-hidden">
-            <img src="/gpta_favicon.svg" alt="GP-TA Logo" className="w-full h-full" />
-          </div>
-          <h1 className={`text-3xl font-bold mb-2 ${themeClasses.label}`}>Welcome to GP-TA</h1>
-          <p className={`text-base ${themeClasses.subtitle}`}>Sign in to continue</p>
-        </div>
+    <div className={`h-screen ${themeClasses.background} relative overflow-hidden flex items-center justify-center p-4`}>
+      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-emerald-400/10 blur-3xl" />
+      <div className="absolute inset-0 opacity-[0.06] bg-[radial-gradient(circle_at_20%_20%,#a5b4fc_0,transparent_25%),radial-gradient(circle_at_80%_0%,#5eead4_0,transparent_20%),radial-gradient(circle_at_50%_100%,#a5b4fc_0,transparent_20%)]" />
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="relative z-10 w-full max-w-md">
+        <div className={`p-8 rounded-3xl ${themeClasses.frostedCard} transition-all duration-300`}>
+          <div className="text-center mb-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 overflow-hidden">
+              <img src="/gpta_favicon.svg" alt="GP-TA Logo" className="w-full h-full" />
+            </div>
+            <h1 className={`text-3xl font-bold mb-2 ${themeClasses.label}`}>GP-TA</h1>
+            <p className={`text-base ${themeClasses.subtitle}`}>Sign in or create an account</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
           {!(showForgotPassword && resetStage === "password") && (
             <EmailField value={email} onChange={setEmail} disabled={isLoading} themeClasses={themeClasses} />
           )}
@@ -227,12 +231,25 @@ export default function Login() {
           )}
         </form>
 
-        <div className={`mt-6 text-center text-sm ${themeClasses.subtitle}`}>
-          Don't have an account?{" "}
-          <Link to="/register" className={`font-medium ${themeClasses.link} transition-colors`}>
-            Sign up
-          </Link>
+          <div className={`mt-6 text-center text-sm ${themeClasses.subtitle}`}>
+            Don't have an account?{" "}
+            <Link to="/register" className={`font-medium ${themeClasses.link} transition-colors`}>
+              Sign up
+            </Link>
+          </div>
         </div>
+
+      <div className={`mt-6 text-center text-xs ${themeClasses.subtitle}`}>
+        By using GP-TA you agree to our{" "}
+        <Link to="/terms" className={`underline ${themeClasses.link}`}>
+          Terms
+        </Link>{" "}
+        and{" "}
+        <Link to="/privacy" className={`underline ${themeClasses.link}`}>
+          Privacy Policy
+        </Link>
+        .
+      </div>
       </div>
     </div>
   );

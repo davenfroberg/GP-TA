@@ -29,16 +29,17 @@ Students who have been away from Piazza for a few days can get a quick, high-lev
 - Custom intent engine which predicts user intent using lightweight logistic regression trained on example user queries.
 - Sends emails for course announcements and user-subscribed topics using AWS Simple Email Service (SES) and notification Lambdas.
 - Clean, modern React + Vite + TypeScript frontend with Tailwind-style utility classes for a responsive, theme-aware UI.
+- User authentication via AWS Cognito with support for sign in, sign up, and password reset.
 
 
 ## Example Queries
-- “What’s on the midterm?”  
-- “I'm stuck on problem set 9!”  
-- “Is the assignment deadline extended?”  
-- “What does the error ‘shape mismatch’ mean in homework 2?”  
+- “What’s on the midterm?”
+- “I'm stuck on problem set 9!”
+- “Is the assignment deadline extended?”
+- “What does the error ‘shape mismatch’ mean in homework 2?”
 - “What libraries can we use for the project?”
-- “What’s been happening on Piazza in the last couple of days?”  
-- “Notify me whenever someone asks about dynamic programming in CPSC 320.”  
+- “What’s been happening on Piazza in the last couple of days?”
+- “Notify me whenever someone asks about dynamic programming in CPSC 320.”
 
 
 
