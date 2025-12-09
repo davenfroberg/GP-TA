@@ -3,6 +3,7 @@ import type { KeyboardEvent } from "react";
 import type { Citation, Message, ChatTab, ChatConfig, Notification } from "../../types/chat";
 import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS} from "../../constants/chat";
 import { useTheme } from "../../hooks/useTheme";
+import { useAuth } from "../../contexts/AuthContext";
 import TabBar from "./TabBar";
 import ChatInput from "./ChatInput";
 import MessageBubble from "./MessageBubble";
@@ -10,10 +11,12 @@ import ExamplePrompts from "./ExamplePrompts";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import PostGeneratorPopup from "./PostGeneratorPopup";
 import NotificationsModal from "./NotificationsModal";
+import SettingsModal from "./SettingsModal";
 
 
 export default function PiazzaChat() {
   const isDark = useTheme();
+  const { logout } = useAuth();
 
   // State management
   const [tabs, setTabs] = usePersistedState<ChatTab[]>('gp-ta-tabs', [{
@@ -33,6 +36,7 @@ export default function PiazzaChat() {
   const [pendingPostGeneration, setPendingPostGeneration] = useState(false);
   const [postToPiazzaMessageId, setPostToPiazzaMessageId] = useState<number | null>(null);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>(() => {
     const stored = localStorage.getItem('gp-ta-notifications');
     return stored ? JSON.parse(stored) : [];
@@ -473,6 +477,14 @@ export default function PiazzaChat() {
     const stored = localStorage.getItem('gp-ta-notifications');
     setNotifications(stored ? JSON.parse(stored) : []);
   }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Error during sign out:", error);
+    }
+  }, [logout]);
 
   const handleNotifyMe = useCallback(async (messageId: number) => {
     try {
@@ -936,6 +948,7 @@ export default function PiazzaChat() {
               themeClasses={themeClasses}
               onNotificationsClick={handleNotificationsToggle}
               hasUnseenNotifications={hasUnseenNotifications}
+              onSettingsClick={() => setIsSettingsOpen(true)}
             />
           </div>
 
@@ -997,6 +1010,12 @@ export default function PiazzaChat() {
         themeClasses={themeClasses}
         onNotificationsUpdate={handleNotificationsUpdate}
         loading={notificationsLoading}
+      />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSignOut={handleSignOut}
+        themeClasses={themeClasses}
       />
     </div>
   );

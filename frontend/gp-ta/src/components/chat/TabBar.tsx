@@ -1,6 +1,6 @@
 import type { ChatTab } from "../../types/chat";
 import { MAX_NUMBER_OF_TABS } from "../../constants/chat";
-import { Bell } from "lucide-react";
+import { Bell, Settings } from "lucide-react";
 
 // Tab Bar Component
 interface TabBarProps {
@@ -16,6 +16,7 @@ interface TabBarProps {
   onNewTab: () => void;
   onNotificationsClick: () => void;
   hasUnseenNotifications: boolean;
+  onSettingsClick: () => void;
   themeClasses: any;
 }
 
@@ -32,8 +33,11 @@ export default function TabBar({
   onNewTab,
   onNotificationsClick,
   hasUnseenNotifications,
+  onSettingsClick,
   themeClasses
 }: TabBarProps) {
+  const isDark = themeClasses.inactiveTab.includes('text-slate-300');
+
   return (
     <div className={`flex items-center ${themeClasses.tabBar} rounded-2xl overflow-x-auto select-none`}>
       {/* GP-TA Logo */}
@@ -83,26 +87,35 @@ export default function TabBar({
         {tabs.length < MAX_NUMBER_OF_TABS && (
           <button
             onClick={onNewTab}
-            className={`px-4 py-2 ${themeClasses.inactiveTab.includes('text-slate-300') ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700 cursor-pointer'}`}
+            className={`px-4 py-2 ${isDark ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700 cursor-pointer'}`}
           >
             +
           </button>
         )}
       </div>
-      
+
       {/* Spacer to push notifications button to the right */}
       <div className="flex-1"></div>
-      
+
       {/* Notifications Button */}
       <button
         onClick={onNotificationsClick}
-        className={`px-3 py-2 mr-2 relative ${themeClasses.inactiveTab.includes('text-slate-300') ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'} transition-colors cursor-pointer`}
+        className={`px-3 py-2 mr-2 relative ${isDark ? 'text-slate-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'} transition-colors cursor-pointer`}
         title="View followed topics"
       >
         <Bell className="w-4 h-4" />
         {hasUnseenNotifications && (
           <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
         )}
+      </button>
+
+      {/* Settings Button */}
+      <button
+        onClick={onSettingsClick}
+        className={`px-3 py-2 mr-1 ${isDark ? 'text-slate-400 hover:text-white' : 'text-gray-500 hover:text-gray-800'} transition-colors cursor-pointer`}
+        title="Settings"
+      >
+        <Settings className="w-4 h-4" />
       </button>
     </div>
   );
