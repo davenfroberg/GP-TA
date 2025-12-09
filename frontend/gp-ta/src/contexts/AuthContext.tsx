@@ -139,13 +139,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try {
       await signOut();
-      setUser(null);
-      setIsAuthenticated(false);
     } catch (error) {
       console.error('Error signing out:', error);
       // Still clear local state even if signOut fails
+    } finally {
       setUser(null);
       setIsAuthenticated(false);
+      document.title = 'GP-TA';
     }
   };
 
