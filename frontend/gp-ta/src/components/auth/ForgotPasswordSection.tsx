@@ -40,7 +40,7 @@ export function ForgotPasswordSection({
           Enter your email address and we'll send you a verification code to reset your password.
         </p>
       )}
-      <button type="button" onClick={onBack} className={`text-sm ${themeClasses.link} transition-colors`}>
+      <button type="button" onClick={onBack} className={`text-sm ${themeClasses.link} transition-colors cursor-pointer`}>
         ← Back to sign in
       </button>
       {resetStage === "request" && (

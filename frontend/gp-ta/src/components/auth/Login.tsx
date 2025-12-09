@@ -164,7 +164,7 @@ export default function Login() {
                   setConfirmationCode("");
                   setNewPassword("");
                 }}
-                className={`text-sm ${themeClasses.link} transition-colors`}
+                className={`text-sm ${themeClasses.link} transition-colors cursor-pointer`}
               >
                 Forgot password?
               </button>
