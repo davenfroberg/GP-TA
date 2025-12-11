@@ -4,6 +4,7 @@ from uuid import uuid4
 from enums.Intent import Intent
 from enums.WebSocketType import WebSocketType
 from predict_intent import predict_intent  # type: ignore ; b/c this is in lambda layer
+from utils.auth import verify_cognito_jwt
 from utils.clients import apigw, openai
 from utils.constants import EMBEDDING_MODEL
 from utils.logger import logger
@@ -26,6 +27,53 @@ def lambda_handler(event: dict, context: dict) -> dict:
         stage = event["requestContext"]["stage"]
 
         body = json.loads(event.get("body", "{}"))
+
+        # Verify JWT token from message
+        token = body.get("token")
+        if not token:
+            logger.warning("Missing JWT token in message", extra={"connection_id": connection_id})
+            send_websocket_message(
+                apigw(domain_name, stage),
+                connection_id,
+                {
+                    "message": "Authentication required. Please log in again.",
+                    "type": WebSocketType.CHUNK.value,
+                },
+            )
+            send_websocket_message(
+                apigw(domain_name, stage),
+                connection_id,
+                {"message": "Finished streaming", "type": WebSocketType.DONE.value},
+            )
+            return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized: Missing token"})}
+
+        try:
+            claims = verify_cognito_jwt(token)
+            user_id = claims.get("sub")
+            logger.debug(
+                "Message authenticated",
+                extra={"user_id": user_id, "connection_id": connection_id},
+            )
+        except ValueError as e:
+            logger.warning(
+                "Invalid JWT token in message",
+                extra={"error": str(e), "connection_id": connection_id},
+            )
+            send_websocket_message(
+                apigw(domain_name, stage),
+                connection_id,
+                {
+                    "message": "Authentication failed. Please log in again.",
+                    "type": WebSocketType.CHUNK.value,
+                },
+            )
+            send_websocket_message(
+                apigw(domain_name, stage),
+                connection_id,
+                {"message": "Finished streaming", "type": WebSocketType.DONE.value},
+            )
+            return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized: Invalid token"})}
+
         message = body.get("message")
         course_name = body.get("course_name")
         model = body.get("model", "gpt-5")
@@ -63,6 +111,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
                     embedding,
                     intent,
                     query_id,
+                    user_id,
                 )
             case Intent.SUMMARIZE.value:
                 from endpoints import summarize
@@ -78,6 +127,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
                     embedding,
                     intent,
                     query_id,
+                    user_id,
                 )
             case Intent.OVERVIEW.value:
                 from endpoints import overview
@@ -94,6 +144,7 @@ def lambda_handler(event: dict, context: dict) -> dict:
                     embedding,
                     intent,
                     query_id,
+                    user_id,
                 )
             case _:
                 logger.warning(

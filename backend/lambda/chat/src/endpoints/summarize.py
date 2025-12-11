@@ -126,6 +126,7 @@ def chat(
     embedding: list[float],
     intent: str,
     query_id: str,
+    user_id: str,
 ) -> dict[str, int]:
     apigw_management = apigw(domain_name, stage)
 
@@ -243,6 +244,7 @@ def chat(
                 processing_time_ms=processing_time_ms,
                 num_summaries_processed=len(summaries) if summaries else None,
                 summary_days=days,
+                user_id=user_id,
             )
 
     return {"statusCode": 200}

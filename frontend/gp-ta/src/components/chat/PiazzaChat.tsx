@@ -4,6 +4,7 @@ import type { Citation, Message, ChatTab, ChatConfig, Notification } from "../..
 import { WEBSOCKET_URL, COURSES, MAX_NUMBER_OF_TABS} from "../../constants/chat";
 import { useTheme } from "../../hooks/useTheme";
 import { useAuth } from "../../contexts/AuthContext";
+import { fetchAuthSession } from "aws-amplify/auth";
 import TabBar from "./TabBar";
 import ChatInput from "./ChatInput";
 import MessageBubble from "./MessageBubble";
@@ -294,37 +295,7 @@ export default function PiazzaChat() {
   }, [fetchNotifications]);
 
 
-  // Memoized WebSocket creation function
-  const getOrCreateWebSocket = useCallback((tabId: number): WebSocket => {
-    let ws = wsConnectionsRef.current.get(tabId);
 
-    if (!ws || ws.readyState === WebSocket.CLOSED) {
-      ws = new WebSocket(WEBSOCKET_URL);
-      wsConnectionsRef.current.set(tabId, ws);
-
-      ws.onclose = () => {
-        wsConnectionsRef.current.delete(tabId);
-      };
-      ws.onerror = (err) => {
-        console.error(`WebSocket error for tab ${tabId}`, err);
-        // Clear timeout on error
-        const timeout = responseTimeoutRef.current.get(tabId);
-        if (timeout) {
-          clearTimeout(timeout);
-          responseTimeoutRef.current.delete(tabId);
-        }
-        const assistantId = currentAssistantIdRef.current.get(tabId);
-        if (assistantId) {
-          updateAssistantMessage(tabId, "Something went wrong, please try again!");
-        }
-        // Stop loading state on error
-        setTabLoading(tabId, false);
-      };
-      ws.onmessage = (event) => handleWebSocketMessage(event, tabId);
-    }
-
-    return ws;
-  }, [setTabLoading]); // Added setTabLoading to dependencies
 
   // Cleanup WebSocket connections when component unmounts
   useEffect(() => {
@@ -648,6 +619,55 @@ export default function PiazzaChat() {
     });
   }, [setTabs]);
 
+  // Memoized WebSocket creation function
+  const getOrCreateWebSocket = useCallback(async (tabId: number): Promise<WebSocket> => {
+    let ws = wsConnectionsRef.current.get(tabId);
+
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      // Get JWT token from Cognito session
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session.tokens?.idToken?.toString();
+
+        if (!idToken) {
+          throw new Error("No authentication token available. Please log in again.");
+        }
+
+        // Build WebSocket URL with JWT token (remove any existing query params)
+        const baseUrl = WEBSOCKET_URL.split('?')[0];
+        const wsUrl = `${baseUrl}?token=${encodeURIComponent(idToken)}`;
+        ws = new WebSocket(wsUrl);
+        wsConnectionsRef.current.set(tabId, ws);
+
+        ws.onclose = () => {
+          wsConnectionsRef.current.delete(tabId);
+        };
+        ws.onerror = (err) => {
+          console.error(`WebSocket error for tab ${tabId}`, err);
+          // Clear timeout on error
+          const timeout = responseTimeoutRef.current.get(tabId);
+          if (timeout) {
+            clearTimeout(timeout);
+            responseTimeoutRef.current.delete(tabId);
+          }
+          const assistantId = currentAssistantIdRef.current.get(tabId);
+          if (assistantId) {
+            updateAssistantMessage(tabId, "Something went wrong, please try again!");
+          }
+          // Stop loading state on error
+          setTabLoading(tabId, false);
+        };
+        ws.onmessage = (event) => handleWebSocketMessage(event, tabId);
+      } catch (error) {
+        console.error("Failed to get authentication token:", error);
+        setTabLoading(tabId, false);
+        throw new Error("Authentication failed. Please log in again.");
+      }
+    }
+
+    return ws;
+  }, [setTabLoading, handleWebSocketMessage, updateAssistantMessage]); // Added dependencies
+
   const addCitationsToAssistantMessage = useCallback((tabId: number, citations: Citation[], citationMap?: Record<number, Citation>) => {
     setTabs(prev => {
       const assistantId = currentAssistantIdRef.current.get(tabId);
@@ -719,70 +739,96 @@ export default function PiazzaChat() {
     }, 20000);
     responseTimeoutRef.current.set(activeTabId, timeoutId);
 
-    const ws = getOrCreateWebSocket(activeTabId);
+    // Get or create WebSocket connection (async)
+    getOrCreateWebSocket(activeTabId)
+      .then(async (ws) => {
+        const sendToWebSocket = async () => {
+          try {
+            // Get fresh JWT token for each message
+            const session = await fetchAuthSession();
+            const idToken = session.tokens?.idToken?.toString();
 
-    const sendToWebSocket = () => {
-      try {
-        ws.send(JSON.stringify({
-          action: "chat",
-          message: trimmed,
-          course_name: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
-          model: chatConfig.model,
-          prioritizeInstructor: chatConfig.prioritizeInstructor,
-        }));
-      } catch (error) {
-        console.error("Failed to send message:", error);
+            if (!idToken) {
+              throw new Error("No authentication token available. Please log in again.");
+            }
+
+            ws.send(JSON.stringify({
+              action: "chat",
+              message: trimmed,
+              course_name: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
+              model: chatConfig.model,
+              prioritizeInstructor: chatConfig.prioritizeInstructor,
+              token: idToken, // Include JWT token in message
+            }));
+          } catch (error: any) {
+            console.error("Failed to send message:", error);
+            // Clear timeout on error
+            const timeout = responseTimeoutRef.current.get(activeTabId);
+            if (timeout) {
+              clearTimeout(timeout);
+              responseTimeoutRef.current.delete(activeTabId);
+            }
+            updateAssistantMessage(activeTabId, error.message || "Something went wrong, please try again!");
+            setTabLoading(activeTabId, false); // Stop loading on error
+          }
+        };
+
+        if (ws.readyState === WebSocket.OPEN) {
+          sendToWebSocket().catch((error) => {
+            console.error("Error sending message:", error);
+          });
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          const connectionTimeout = setTimeout(() => {
+            // Clear response timeout on connection timeout
+            const timeout = responseTimeoutRef.current.get(activeTabId);
+            if (timeout) {
+              clearTimeout(timeout);
+              responseTimeoutRef.current.delete(activeTabId);
+            }
+            updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+            setTabLoading(activeTabId, false); // Stop loading on timeout
+          }, 10000);
+
+          ws.addEventListener('open', () => {
+            clearTimeout(connectionTimeout);
+            sendToWebSocket().catch((error) => {
+              console.error("Error sending message:", error);
+            });
+          }, { once: true });
+
+          ws.addEventListener('error', () => {
+            // Clear response timeout on error
+            const timeout = responseTimeoutRef.current.get(activeTabId);
+            if (timeout) {
+              clearTimeout(timeout);
+              responseTimeoutRef.current.delete(activeTabId);
+            }
+            clearTimeout(connectionTimeout);
+            updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+            setTabLoading(activeTabId, false); // Stop loading on error
+          }, { once: true });
+        } else {
+          // Clear response timeout if WebSocket is not available
+          const timeout = responseTimeoutRef.current.get(activeTabId);
+          if (timeout) {
+            clearTimeout(timeout);
+            responseTimeoutRef.current.delete(activeTabId);
+          }
+          updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
+          setTabLoading(activeTabId, false); // Stop loading if WebSocket is not available
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to create WebSocket connection:", error);
         // Clear timeout on error
         const timeout = responseTimeoutRef.current.get(activeTabId);
         if (timeout) {
           clearTimeout(timeout);
           responseTimeoutRef.current.delete(activeTabId);
         }
-        updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
-        setTabLoading(activeTabId, false); // Stop loading on error
-      }
-    };
-
-    if (ws.readyState === WebSocket.OPEN) {
-      sendToWebSocket();
-    } else if (ws.readyState === WebSocket.CONNECTING) {
-      const connectionTimeout = setTimeout(() => {
-        // Clear response timeout on connection timeout
-        const timeout = responseTimeoutRef.current.get(activeTabId);
-        if (timeout) {
-          clearTimeout(timeout);
-          responseTimeoutRef.current.delete(activeTabId);
-        }
-        updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
-        setTabLoading(activeTabId, false); // Stop loading on timeout
-      }, 10000);
-
-      ws.addEventListener('open', () => {
-        clearTimeout(connectionTimeout);
-        sendToWebSocket();
-      }, { once: true });
-
-      ws.addEventListener('error', () => {
-        // Clear response timeout on error
-        const timeout = responseTimeoutRef.current.get(activeTabId);
-        if (timeout) {
-          clearTimeout(timeout);
-          responseTimeoutRef.current.delete(activeTabId);
-        }
-        clearTimeout(connectionTimeout);
-        updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
-        setTabLoading(activeTabId, false); // Stop loading on error
-      }, { once: true });
-    } else {
-      // Clear response timeout if WebSocket is not available
-      const timeout = responseTimeoutRef.current.get(activeTabId);
-      if (timeout) {
-        clearTimeout(timeout);
-        responseTimeoutRef.current.delete(activeTabId);
-      }
-      updateAssistantMessage(activeTabId, "Something went wrong, please try again!");
-      setTabLoading(activeTabId, false); // Stop loading if WebSocket is not available
-    }
+        updateAssistantMessage(activeTabId, error.message || "Authentication failed. Please log in again.");
+        setTabLoading(activeTabId, false);
+      });
   }, [input, activeTabId, activeTab.selectedCourse, chatConfig, isCurrentTabLoading, addMessagesToTab, getOrCreateWebSocket, updateAssistantMessage, setTabLoading]);
 
   // Memoized popup handlers

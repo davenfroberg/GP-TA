@@ -58,6 +58,8 @@ def save_student_query(
     gpt_model: str,
     connection_id: str,
     processing_time_ms: int,
+    # User specific fields
+    user_id: str,
     # General query specific fields
     prioritize_instructor: bool | None = None,
     needs_more_context: bool | None = None,
@@ -82,6 +84,7 @@ def save_student_query(
         item = {
             "course_id": course_id,
             "query_id": query_id,
+            "user_id": user_id,
             "query": raw_query,
             "normalized_query": normalized_query,
             "embedding": embedding_decimals,
@@ -120,10 +123,19 @@ def save_student_query(
         table.put_item(Item=item)
         logger.debug(
             "Saved student query to DynamoDB",
-            extra={"course_id": course_id, "query_id": query_id, "intent": intent},
+            extra={
+                "course_id": course_id,
+                "query_id": query_id,
+                "intent": intent,
+                "user_id": user_id,
+            },
         )
     except Exception:
         logger.exception(
             "Failed to save student query to DynamoDB",
-            extra={"course_id": course_id, "query_id": query_id},
+            extra={
+                "course_id": course_id,
+                "query_id": query_id,
+                "user_id": user_id,
+            },
         )

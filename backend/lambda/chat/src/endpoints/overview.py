@@ -28,6 +28,7 @@ def chat(
     embedding: list[float],
     intent: str,
     query_id: str,
+    user_id: str,
 ) -> dict[str, int]:
     """Main function to handle chat requests."""
 
@@ -118,6 +119,7 @@ def chat(
                 gpt_model=gpt_model,
                 connection_id=connection_id,
                 processing_time_ms=processing_time_ms,
+                user_id=user_id,
             )
 
     return {"statusCode": 200}

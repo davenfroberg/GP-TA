@@ -452,6 +452,7 @@ def chat(
     embedding: list[float],
     intent: str,
     query_id: str,
+    user_id: str,
 ) -> dict[str, int]:
     """Main function to handle chat requests."""
 
@@ -663,6 +664,7 @@ def chat(
                 top_chunk_scores=top_chunk_scores if top_chunk_scores else None,
                 num_citations=len(citations),
                 citation_post_numbers=citation_post_numbers if citation_post_numbers else None,
+                user_id=user_id,
             )
 
     return {"statusCode": 200}
