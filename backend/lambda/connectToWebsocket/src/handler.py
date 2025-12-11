@@ -1,4 +1,4 @@
-from utils.auth import verify_cognito_jwt
+from auth_utils import verify_cognito_jwt  # pyright: ignore[reportMissingImports]; b/c in layer
 from utils.logger import logger
 
 

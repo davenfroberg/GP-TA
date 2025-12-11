@@ -1,10 +1,10 @@
 import json
 from uuid import uuid4
 
+from auth_utils import verify_cognito_jwt  # pyright: ignore[reportMissingImports]; b/c in layer
 from enums.Intent import Intent
 from enums.WebSocketType import WebSocketType
 from predict_intent import predict_intent  # type: ignore ; b/c this is in lambda layer
-from utils.auth import verify_cognito_jwt
 from utils.clients import apigw, openai
 from utils.constants import EMBEDDING_MODEL
 from utils.logger import logger

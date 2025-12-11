@@ -42,3 +42,5 @@ backend/lambda/layers
 
 ml/**/*.csv
 ml/**/python
+
+backend/.ruff_cache
