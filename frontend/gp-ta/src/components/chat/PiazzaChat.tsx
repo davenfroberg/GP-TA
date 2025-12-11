@@ -541,7 +541,7 @@ export default function PiazzaChat() {
         throw new Error(`API request failed: ${response.status}`);
       }
 
-      const data = await response.json();
+      await response.json();
 
       if (response.status === 201) {
         const notificationId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
