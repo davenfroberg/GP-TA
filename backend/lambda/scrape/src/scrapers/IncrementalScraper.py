@@ -95,6 +95,17 @@ class IncrementalScraper(AbstractScraper):
                 try:
                     post_chunks = []
                     post = network.get_post(post_id)
+
+                    if post.get("status") == "deleted":
+                        logger.warning(
+                            "Skipping post - post already deleted",
+                            extra={"post_id": post_id, "course_id": course_id},
+                        )
+                        self.sqs.delete_message(
+                            QueueUrl=SQS_QUEUE_URL, ReceiptHandle=sqs_msg["ReceiptHandle"]
+                        )
+                        continue
+
                     blobs = extractor.extract_all_post_blobs(post)
 
                     for blob in blobs:

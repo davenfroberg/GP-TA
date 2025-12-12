@@ -257,7 +257,32 @@ class PostManager:
 
         post_id = new_post.get("id")
 
+        # Validate that both keys exist - DynamoDB keys cannot be None
+        if post_id is None:
+            logger.error(
+                "Cannot process post: post_id is None",
+                extra={
+                    "course_id": course_id,
+                    "post": new_post,
+                },
+            )
+            return
+
+        # Ensure both keys are strings for DynamoDB (Piazza may return post_id as int)
+        course_id = str(course_id)
+        post_id = str(post_id)
+
         try:
+            logger.info(
+                "Processing post - checking types",
+                extra={
+                    "course_id_type": str(type(course_id)),
+                    "post_id_type": str(type(post_id)),
+                    "course_id": course_id,
+                    "post_id": post_id,
+                },
+            )
+
             response = self.posts_table.get_item(Key={"course_id": course_id, "post_id": post_id})
             existing_post = response.get("Item")
         except Exception:
