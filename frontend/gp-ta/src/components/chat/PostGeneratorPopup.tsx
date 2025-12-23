@@ -1,3 +1,4 @@
+import { fetchAuthSession } from "aws-amplify/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 
@@ -22,8 +23,8 @@ const COURSE_FOLDERS: Record<string, FolderItem[]> = {
   "CPSC 110": [
     { name: "logistics" },
     { name: "lectures" },
-    { 
-      name: "labs", 
+    {
+      name: "labs",
       children: ["general_lab_questions", "lab1", "lab2", "lab3", "lab4", "lab5", "lab6", "lab7", "lab8", "lab9", "lab10", "lab11"]
     },
     { name: "problem_sets",
@@ -39,8 +40,8 @@ const COURSE_FOLDERS: Record<string, FolderItem[]> = {
     { name: "other" },
     { name: "lecture" },
     { name: "homework" },
-    { 
-      name: "labs", 
+    {
+      name: "labs",
       children: ["lab1", "lab2", "lab3", "lab4", "lab5", "lab6", "lab7", "lab8", "lab9"]
     },
     { name: "practice_questions",
@@ -82,8 +83,8 @@ const COURSE_FOLDERS: Record<string, FolderItem[]> = {
     { name: "exam" },
     { name: "logistics" },
     { name: "other" },
-    { 
-      name: "exams", 
+    {
+      name: "exams",
       children: ["mt1", "mt2", "final"]
     },
     { name: "bug_bounties" },
@@ -143,7 +144,7 @@ export default function PostGeneratorPopup({
       type Message = { id: number; role: string; text: string; course?: string };
       const messages: Message[] = activeTab.messages;
       const assistantIndex = messages.findIndex((m: Message) => m.id === messageId && m.role === "assistant");
-      
+
       if (assistantIndex !== -1 && assistantIndex > 0) {
         const userMessage = messages[assistantIndex - 1];
         if (userMessage && userMessage.role === "user" && userMessage.course) {
@@ -152,7 +153,7 @@ export default function PostGeneratorPopup({
         }
       }
     }
-    
+
     // Fallback to activeTab's selected course
     if (isOpen && activeTab?.selectedCourse) {
       setSelectedCourse(activeTab.selectedCourse);
@@ -162,14 +163,14 @@ export default function PostGeneratorPopup({
   // Close on Escape key
   useEffect(() => {
     if (!isOpen) return;
-    
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         handleCancel();
       }
     };
-    
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
@@ -188,7 +189,7 @@ export default function PostGeneratorPopup({
 
   const handleGenerate = async () => {
     setState('generating');
-    
+
     try {
       // Call the original onGenerate function but don't close popup
       // We'll need to modify the parent component to handle this differently
@@ -206,19 +207,19 @@ export default function PostGeneratorPopup({
         setState('input');
         return;
       }
-      
+
       type Message = { id: number; role: string; text: string; course?: string };
       const messages: Message[] = activeTab.messages;
-      
+
       // Find the specific assistant message by messageId, or fall back to the last one
       let assistantMessage: Message | undefined;
       let originalQuestion = "";
       let messageCourse: string | undefined;
-      
+
       if (messageId) {
         // Find the specific assistant message that was clicked
         const assistantIndex = messages.findIndex((m: Message) => m.id === messageId && m.role === "assistant");
-        
+
         if (assistantIndex !== -1) {
           assistantMessage = messages[assistantIndex];
           // The user's message should be right before this assistant message
@@ -231,7 +232,7 @@ export default function PostGeneratorPopup({
           }
         }
       }
-      
+
       // Fallback to latest messages if messageId not found or not provided
       if (!assistantMessage) {
         const assistantMessages = messages.filter((m: Message) => m.role === "assistant");
@@ -243,16 +244,25 @@ export default function PostGeneratorPopup({
           messageCourse = userMessage.course;
         }
       }
-      
+
       // Update selected course if we found one from the message
       if (messageCourse) {
         setSelectedCourse(messageCourse);
       }
-      
+
+      // Get JWT token for authentication
+      const session = await fetchAuthSession();
+      const idToken = session.tokens?.idToken?.toString();
+
+      if (!idToken) {
+        throw new Error("No authentication token available. Please log in again.");
+      }
+
       const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/generate-post`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
         },
         body: JSON.stringify({
           llm_attempt: assistantMessage?.text || "",
@@ -260,17 +270,17 @@ export default function PostGeneratorPopup({
           additional_context: additionalContext
         })
       });
-      
+
       if (!response.ok) {
         throw new Error(`API request failed: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       setEditableTitle(data.post_title);
       setEditableContent(data.post_content);
       setState('editing');
-      
+
     } catch (error) {
       console.error('Error generating post:', error);
       setState('input');
@@ -279,12 +289,21 @@ export default function PostGeneratorPopup({
 
   const handlePost = async () => {
     setState('posting');
-    
+
+    // Get JWT token for authentication
+    const session = await fetchAuthSession();
+    const idToken = session.tokens?.idToken?.toString();
+
+    if (!idToken) {
+      throw new Error("No authentication token available. Please log in again.");
+    }
+
     try {
       const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/post-to-piazza`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
         },
         body: JSON.stringify({
           api_key: import.meta.env.VITE_GP_TA_API_KEY,
@@ -296,13 +315,13 @@ export default function PostGeneratorPopup({
           anonymous: postAnonymously
         })
       });
-      
+
       if (!response.ok) {
         throw new Error(`API request failed: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         // Call success callback and close popup
         if (onPostSuccess) {
@@ -311,7 +330,7 @@ export default function PostGeneratorPopup({
       } else {
         throw new Error(data.error || 'Failed to post to Piazza');
       }
-      
+
     } catch (error) {
       console.error('Error posting to Piazza:', error);
       setState('editing'); // Go back to editing state on error
@@ -330,7 +349,7 @@ export default function PostGeneratorPopup({
     setSelectedFolders(prev => {
       const newSet = new Set(prev);
       const folder = getAvailableFolders().find(f => f.name === folderName);
-      
+
       if (newSet.has(folderName)) {
         // Deselecting parent - also deselect all children
         newSet.delete(folderName);
@@ -345,7 +364,7 @@ export default function PostGeneratorPopup({
       }
       return newSet;
     });
-    
+
     // Close other dropdowns when selecting a folder (unless keeping dropdown open)
     if (!keepDropdownOpen) {
       setExpandedFolders(new Set());
@@ -370,7 +389,7 @@ export default function PostGeneratorPopup({
     setSelectedFolders(prev => {
       const newSet = new Set(prev);
       const fullPath = `${parentFolderName}:${subFolderName}`;
-      
+
       if (newSet.has(fullPath)) {
         newSet.delete(fullPath);
       } else {
@@ -424,7 +443,7 @@ export default function PostGeneratorPopup({
 
       {/* Footer */}
       <div className="flex justify-end gap-3 mt-6">
-        <button 
+        <button
           onClick={handleCancel}
           className={`px-4 py-2 rounded-xl ${themeClasses.closeButton} cursor-pointer`}
         >
@@ -521,7 +540,7 @@ export default function PostGeneratorPopup({
                     </button>
                 )}
               </div>
-              
+
               {/* Subfolder dropdown */}
               {folder.children && expandedFolders.has(folder.name) && (
                 <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-10 min-w-max">
@@ -601,7 +620,7 @@ export default function PostGeneratorPopup({
 
       {/* Footer */}
       <div className="flex justify-end gap-3">
-        <button 
+        <button
           onClick={handleCancel}
           className={`px-4 py-2 rounded-xl ${themeClasses.closeButton} cursor-pointer`}
         >
