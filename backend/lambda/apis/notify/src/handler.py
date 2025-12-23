@@ -1,3 +1,5 @@
+import json
+
 from endpoints.create import create_notification
 from endpoints.delete import delete_notification
 from endpoints.get import get_all_notifications
@@ -11,20 +13,22 @@ def lambda_handler(event: dict, context: dict) -> dict:
 
     try:
         if method == "GET":
-            return get_all_notifications()
+            return get_all_notifications(event)
         elif method == "POST":
             return create_notification(event)
         elif method == "DELETE":
             return delete_notification(event)
         else:
             logger.warning("Unsupported HTTP method", extra={"method": method})
-            return {"statusCode": 404, "body": "Not found"}
+            return {
+                "statusCode": 404,
+                "headers": {"Content-Type": "application/json"},
+                "body": json.dumps({"error": "Not found"}),
+            }
     except Exception:
         logger.exception("Unexpected error in lambda_handler", extra={"method": method})
         return {
             "statusCode": 500,
-            "headers": {
-                "Content-Type": "application/json",
-            },
-            "body": '{"error": "Internal server error"}',
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": "Internal server error"}),
         }

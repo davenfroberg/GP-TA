@@ -1,6 +1,6 @@
 PINECONE_INDEX_NAME = "piazza-chunks"
 AWS_REGION_NAME = "us-west-2"
-NOTIFICATIONS_TABLE_NAME = "notifications"
+NOTIFICATIONS_TABLE_NAME = "followed-queries"
 SENT_TABLE_NAME = "notifications-sent"
 
 SECRETS = {"PINECONE": "pinecone_key"}

@@ -48,16 +48,37 @@ def compute_notification_threshold(closest_score: float) -> float:
 def create_notification(event: dict) -> dict:
     dynamo = boto3.resource("dynamodb")
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
+    headers = {"Content-Type": "application/json"}
+
     try:
         logger.info("Creating notification")
+
+        request_context = event.get("requestContext", {})
+        authorizer = request_context.get("authorizer", {})
+
+        user_id = None
+        if authorizer:
+            jwt = authorizer.get("jwt", {})
+            if jwt:
+                claims = jwt.get("claims", {})
+                if claims:
+                    user_id = claims.get("sub")
+
+        if not user_id:
+            logger.warning("Missing user_id in authorizer claims")
+            return {
+                "statusCode": 401,
+                "headers": headers,
+                "body": json.dumps({"error": "Unauthorized: Missing user_id"}),
+            }
+
+        logger.debug("Request authenticated", extra={"user_id": user_id})
 
         if not event.get("body"):
             logger.warning("Missing request body")
             return {
                 "statusCode": 400,
-                "headers": {
-                    "Content-Type": "application/json",
-                },
+                "headers": headers,
                 "body": json.dumps({"error": "Request body is required"}),
             }
 
@@ -76,9 +97,7 @@ def create_notification(event: dict) -> dict:
             )
             return {
                 "statusCode": 400,
-                "headers": {
-                    "Content-Type": "application/json",
-                },
+                "headers": headers,
                 "body": json.dumps({"error": "user_query and course_display_name are required"}),
             }
 
@@ -90,9 +109,7 @@ def create_notification(event: dict) -> dict:
             )
             return {
                 "statusCode": 400,
-                "headers": {
-                    "Content-Type": "application/json",
-                },
+                "headers": headers,
                 "body": json.dumps({"error": f'Course "{course_display_name}" not found'}),
             }
 
@@ -104,13 +121,17 @@ def create_notification(event: dict) -> dict:
                 "user_query": user_query,
                 "course_display_name": course_display_name,
                 "course_id": course_id,
+                "user_id": user_id,
             },
         )
 
+        # New schema: PK=user_id, SK=course_id#query
+        sort_key = f"{course_id}#{user_query}"
+
         response = table.query(
             KeyConditionExpression=(
-                boto3.dynamodb.conditions.Key("course_id").eq(course_id)
-                & boto3.dynamodb.conditions.Key("query").eq(user_query)
+                boto3.dynamodb.conditions.Key("user_id").eq(user_id)
+                & boto3.dynamodb.conditions.Key("course_id#query").eq(sort_key)
             )
         )
 
@@ -123,16 +144,13 @@ def create_notification(event: dict) -> dict:
                     "user_query": user_query,
                     "course_id": course_id,
                     "course_display_name": course_display_name,
+                    "user_id": user_id,
                 },
             )
             return {
                 "statusCode": 200,
-                "headers": {
-                    "Content-Type": "application/json",
-                },
-                "body": json.dumps(
-                    {"query": user_query, "course_display_name": course_display_name}
-                ),
+                "headers": headers,
+                "body": json.dumps({"query": user_query, "course_name": course_display_name}),
             }
 
         closest_score = get_closest_embedding_score(user_query, course_id)
@@ -150,11 +168,13 @@ def create_notification(event: dict) -> dict:
         )
 
         dynamo_record = {
+            "user_id": user_id,  # partition key
+            "course_id#query": sort_key,  # sort key
+            "course_id": course_id,  # denormalized for easier access
+            "query": user_query,  # denormalized for easier access
             "closest_score": closest_score,
             "notification_threshold": notification_threshold,
             "course_display_name": course_display_name,
-            "course_id": course_id,  # partition key
-            "query": user_query,  # sort key
             "max_notifications": MAX_NOTIFICATIONS,
         }
         # convert float to decimal for dynamo
@@ -168,25 +188,22 @@ def create_notification(event: dict) -> dict:
                 "user_query": user_query,
                 "course_id": course_id,
                 "course_display_name": course_display_name,
+                "user_id": user_id,
             },
         )
 
         # created response
         return {
             "statusCode": 201,
-            "headers": {
-                "Content-Type": "application/json",
-            },
-            "body": json.dumps({"query": user_query, "course_display_name": course_display_name}),
+            "headers": headers,
+            "body": json.dumps({"query": user_query, "course_name": course_display_name}),
         }
 
     except json.JSONDecodeError:
         logger.exception("JSON decode error in create_notification")
         return {
             "statusCode": 400,
-            "headers": {
-                "Content-Type": "application/json",
-            },
+            "headers": headers,
             "body": json.dumps({"error": "Invalid JSON in request body"}),
         }
 
@@ -194,8 +211,6 @@ def create_notification(event: dict) -> dict:
         logger.exception("Error creating notification")
         return {
             "statusCode": 500,
-            "headers": {
-                "Content-Type": "application/json",
-            },
+            "headers": headers,
             "body": json.dumps({"error": "Internal server error"}),
         }

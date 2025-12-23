@@ -1,20 +1,22 @@
 import json
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from utils.constants import NOTIFICATIONS_TABLE_NAME
 from utils.logger import logger
 
 
-def get_notifications_from_dynamo() -> list[dict]:
+def get_notifications_from_dynamo(user_id: str) -> list[dict]:
     dynamo = boto3.resource("dynamodb")
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
 
     items = []
     page_count = 0
 
-    logger.info("Fetching notifications from DynamoDB")
+    logger.info("Fetching notifications from DynamoDB", extra={"user_id": user_id})
     try:
-        response = table.scan()
+        # Query by user_id (partition key)
+        response = table.query(KeyConditionExpression=Key("user_id").eq(user_id))
 
         # handle pagination
         while True:
@@ -28,11 +30,18 @@ def get_notifications_from_dynamo() -> list[dict]:
             if "LastEvaluatedKey" not in response:
                 break
 
-            response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+            response = table.query(
+                KeyConditionExpression=Key("user_id").eq(user_id),
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
 
         logger.info(
             "Successfully fetched notifications from DynamoDB",
-            extra={"notification_count": len(items), "pages_scanned": page_count},
+            extra={
+                "notification_count": len(items),
+                "pages_scanned": page_count,
+                "user_id": user_id,
+            },
         )
     except Exception:
         logger.exception("Failed to fetch notifications from DynamoDB")
@@ -41,22 +50,47 @@ def get_notifications_from_dynamo() -> list[dict]:
     return items
 
 
-def get_all_notifications():
+def get_all_notifications(event: dict) -> dict:
+    headers = {"Content-Type": "application/json"}
+
     try:
-        items = get_notifications_from_dynamo()
+        request_context = event.get("requestContext", {})
+        authorizer = request_context.get("authorizer", {})
+
+        user_id = None
+        if authorizer:
+            jwt = authorizer.get("jwt", {})
+            if jwt:
+                claims = jwt.get("claims", {})
+                if claims:
+                    user_id = claims.get("sub")
+
+        if not user_id:
+            logger.warning(
+                "Missing user_id in authorizer",
+                extra={
+                    "has_authorizer": bool(authorizer),
+                    "authorizer_keys": list(authorizer.keys()) if authorizer else None,
+                },
+            )
+            return {
+                "statusCode": 401,
+                "headers": headers,
+                "body": json.dumps({"error": "Unauthorized: Missing user_id"}),
+            }
+
+        logger.debug("Request authenticated", extra={"user_id": user_id})
+
+        items = get_notifications_from_dynamo(user_id)
         return {
             "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-            },
+            "headers": headers,
             "body": json.dumps(items),
         }
     except Exception:
         logger.exception("Failed to get all notifications")
         return {
             "statusCode": 500,
-            "headers": {
-                "Content-Type": "application/json",
-            },
+            "headers": headers,
             "body": json.dumps({"error": "Internal server error"}),
         }

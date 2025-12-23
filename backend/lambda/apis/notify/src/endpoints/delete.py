@@ -8,14 +8,14 @@ from utils.logger import logger
 dynamo = boto3.resource("dynamodb")
 
 
-def delete_sent_notifications(user_query, course_id):
-    """Delete all sent notifications for a given course_id and query"""
+def delete_sent_notifications(user_id: str, user_query: str, course_id: str):
+    """Delete all sent notifications for a given user_id, course_id and query"""
     table = dynamo.Table(SENT_TABLE_NAME)
-    pk = f"{course_id}#{user_query}"
+    pk = f"{user_id}#{course_id}#{user_query}"
 
     logger.info(
         "Deleting sent notifications",
-        extra={"course_id": course_id, "user_query": user_query, "pk": pk},
+        extra={"user_id": user_id, "course_id": course_id, "user_query": user_query, "pk": pk},
     )
 
     try:
@@ -24,7 +24,8 @@ def delete_sent_notifications(user_query, course_id):
 
         # Query to get all items with this PK
         response = table.query(
-            KeyConditionExpression=Key("course_id#query").eq(pk), ProjectionExpression="chunk_id"
+            KeyConditionExpression=Key("user_id#course_id#query").eq(pk),
+            ProjectionExpression="chunk_id",
         )
 
         # Delete all items with pagination
@@ -36,7 +37,9 @@ def delete_sent_notifications(user_query, course_id):
             if items:
                 with table.batch_writer() as batch:
                     for item in items:
-                        batch.delete_item(Key={"course_id#query": pk, "chunk_id": item["chunk_id"]})
+                        batch.delete_item(
+                            Key={"user_id#course_id#query": pk, "chunk_id": item["chunk_id"]}
+                        )
                         deleted_count += 1
 
             # Check for more pages
@@ -44,7 +47,7 @@ def delete_sent_notifications(user_query, course_id):
                 break
 
             response = table.query(
-                KeyConditionExpression=Key("course_id#query").eq(pk),
+                KeyConditionExpression=Key("user_id#course_id#query").eq(pk),
                 ProjectionExpression="chunk_id",
                 ExclusiveStartKey=response["LastEvaluatedKey"],
             )
@@ -52,6 +55,7 @@ def delete_sent_notifications(user_query, course_id):
         logger.info(
             "Successfully deleted sent notifications",
             extra={
+                "user_id": user_id,
                 "course_id": course_id,
                 "user_query": user_query,
                 "deleted_count": deleted_count,
@@ -62,18 +66,44 @@ def delete_sent_notifications(user_query, course_id):
     except Exception:
         logger.exception(
             "Error deleting sent notifications",
-            extra={"course_id": course_id, "user_query": user_query},
+            extra={"user_id": user_id, "course_id": course_id, "user_query": user_query},
         )
         raise
 
 
 def delete_notification(event: dict) -> dict:
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
-
     headers = {"Content-Type": "application/json"}
 
     try:
         logger.info("Processing delete notification request")
+
+        request_context = event.get("requestContext", {})
+        authorizer = request_context.get("authorizer", {})
+
+        user_id = None
+        if authorizer:
+            jwt = authorizer.get("jwt", {})
+            if jwt:
+                claims = jwt.get("claims", {})
+                if claims:
+                    user_id = claims.get("sub")
+
+        if not user_id:
+            logger.warning(
+                "Missing user_id in authorizer",
+                extra={
+                    "has_authorizer": bool(authorizer),
+                    "authorizer_keys": list(authorizer.keys()) if authorizer else None,
+                },
+            )
+            return {
+                "statusCode": 401,
+                "headers": headers,
+                "body": json.dumps({"error": "Unauthorized: Missing user_id"}),
+            }
+
+        logger.debug("Request authenticated", extra={"user_id": user_id})
 
         params = event.get("queryStringParameters") or {}
 
@@ -114,12 +144,14 @@ def delete_notification(event: dict) -> dict:
                 "user_query": user_query,
                 "course_display_name": course_display_name,
                 "course_id": course_id,
+                "user_id": user_id,
             },
         )
 
-        table.delete_item(Key={"course_id": course_id, "query": user_query})
+        sort_key = f"{course_id}#{user_query}"
+        table.delete_item(Key={"user_id": user_id, "course_id#query": sort_key})
 
-        delete_sent_notifications(user_query, course_id)
+        delete_sent_notifications(user_id, user_query, course_id)
 
         logger.info(
             "Successfully deleted notification",
@@ -127,6 +159,7 @@ def delete_notification(event: dict) -> dict:
                 "user_query": user_query,
                 "course_id": course_id,
                 "course_display_name": course_display_name,
+                "user_id": user_id,
             },
         )
 

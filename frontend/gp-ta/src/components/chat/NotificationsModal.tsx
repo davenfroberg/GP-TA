@@ -3,6 +3,7 @@ import { Bell, X, Plus } from "lucide-react";
 import { COURSES } from "../../constants/chat";
 import type { Notification } from "../../types/chat";
 import { motion, AnimatePresence } from "framer-motion";
+import { fetchAuthSession } from "aws-amplify/auth";
 
 interface NotificationsModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
   const [newTopicCourse, setNewTopicCourse] = useState<string>(COURSES[0]);
   const [isCreating, setIsCreating] = useState<boolean>(false);
   const [isCreateView, setIsCreateView] = useState<boolean>(false);
-  
+
   // Keep ref in sync with state
   useEffect(() => {
     notificationsRef.current = notifications;
@@ -72,14 +73,27 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
         return;
       }
 
+      // Get JWT token for authentication
+      const session = await fetchAuthSession();
+      const idToken = session.tokens?.idToken?.toString();
+
+      if (!idToken) {
+        throw new Error("No authentication token available. Please log in again.");
+      }
+
       const url = new URL(
         `https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`
       );
       url.searchParams.append("user_query", notificationToDelete.query);
       url.searchParams.append("course_display_name", notificationToDelete.course_name);
 
-      const deleteResponse = await fetch(url.toString(), { method: "DELETE" });
-      
+      const deleteResponse = await fetch(url.toString(), {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${idToken}`,
+        },
+      });
+
       if (!deleteResponse.ok) {
         throw new Error(`Delete failed: ${deleteResponse.status}`);
       }
@@ -92,17 +106,17 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
           const shouldKeep = n.id !== notificationId;
           return shouldKeep;
         });
-        
+
         // Only update localStorage if we actually removed something
         if (updated.length < prev.length) {
           localStorage.setItem("gp-ta-notifications", JSON.stringify(updated));
         } else {
           console.warn('No notification was removed - ID not found or already deleted');
         }
-        
+
         return updated;
       });
-      
+
       // Notify parent after state update is complete
       // Use requestAnimationFrame to ensure React has processed our state update
       requestAnimationFrame(() => {
@@ -130,12 +144,21 @@ export default function NotificationsModal({ isOpen, onClose, themeClasses, onNo
 
     setIsCreating(true);
     try {
+      // Get JWT token for authentication
+      const session = await fetchAuthSession();
+      const idToken = session.tokens?.idToken?.toString();
+
+      if (!idToken) {
+        throw new Error("No authentication token available. Please log in again.");
+      }
+
       const response = await fetch(
         `https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "Authorization": `Bearer ${idToken}`,
           },
           body: JSON.stringify({
             user_query: trimmedQuery,

@@ -279,7 +279,24 @@ export default function PiazzaChat() {
   const fetchNotifications = useCallback(async () => {
     setNotificationsLoading(true);
     try {
-      const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`);
+      // Get JWT token for authentication
+      const session = await fetchAuthSession();
+      const idToken = session.tokens?.idToken?.toString();
+
+      if (!idToken) {
+        console.error("No authentication token available");
+        setNotificationsLoading(false);
+        return;
+      }
+
+      const response = await fetch(
+        `https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`,
+        {
+          headers: {
+            "Authorization": `Bearer ${idToken}`,
+          },
+        }
+      );
       const data = await response.json();
       setNotifications(data);
       localStorage.setItem('gp-ta-notifications', JSON.stringify(data));
@@ -526,10 +543,19 @@ export default function PiazzaChat() {
       // Use the course from the user message, fallback to activeTab.selectedCourse if not set
       const messageCourse = userMessage.course || activeTab.selectedCourse;
 
+      // Get JWT token for authentication
+      const session = await fetchAuthSession();
+      const idToken = session.tokens?.idToken?.toString();
+
+      if (!idToken) {
+        throw new Error("No authentication token available. Please log in again.");
+      }
+
       const response = await fetch(`https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/notify`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
         },
         body: JSON.stringify({
           user_query: userQuery,
