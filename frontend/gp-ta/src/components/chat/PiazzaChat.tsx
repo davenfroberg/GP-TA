@@ -634,6 +634,7 @@ export default function PiazzaChat() {
         }
 
         // Build WebSocket URL with JWT token (remove any existing query params)
+        // TODO: FIX THIS INCREDIBLY INSECURE!!!
         const baseUrl = WEBSOCKET_URL.split('?')[0];
         const wsUrl = `${baseUrl}?token=${encodeURIComponent(idToken)}`;
         ws = new WebSocket(wsUrl);

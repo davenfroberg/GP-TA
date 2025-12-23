@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from botocore.exceptions import ClientError
+
 from utils.constants import QUERY_PATTERNS
 from utils.logger import logger
 

@@ -159,7 +159,7 @@ export default function SettingsModal({ isOpen, onClose, onSignOut, themeClasses
               <div className="space-y-4">
                 <div className="pb-2">
                   <p className={`text-xl font-semibold ${themeClasses.label}`}>Daven Froberg</p>
-                  <p className={`text-sm ${themeClasses.footer} mt-1`}>Premium tier</p>
+                  <p className={`text-sm ${themeClasses.footer} mt-1`}>GP-TA Premium</p>
                 </div>
                 <div>
                   <label className={`block text-sm font-medium ${themeClasses.label} mb-2`}>
