@@ -11,6 +11,7 @@ from utils.constants import (
     SENT_NOTIFICATIONS_DYNAMO_TABLE_NAME,
     SES_RECIPIENT_EMAIL,
     SES_SOURCE_EMAIL,
+    USERS_TABLE_NAME,
 )
 from utils.logger import logger
 from utils.utils import get_secret_api_key
@@ -31,14 +32,13 @@ except Exception:
     raise
 
 # Initialize DynamoDB tables
-sent_notifications_table = dynamo.Table(SENT_NOTIFICATIONS_DYNAMO_TABLE_NAME)
-notifications_table = dynamo.Table(NOTIFICATIONS_DYNAMO_TABLE_NAME)
 
 
 @dataclass
 class NotificationConfig:
     """Configuration for a notification query"""
 
+    user_id: str
     query: str
     course_id: str
     course_name: str
@@ -63,20 +63,32 @@ class NotificationService:
 
     def __init__(self):
         self.notifications_sent = 0
+        self.users_table = dynamo.Table(USERS_TABLE_NAME)
+        self.sent_notifications_table = dynamo.Table(SENT_NOTIFICATIONS_DYNAMO_TABLE_NAME)
+        self.notifications_table = dynamo.Table(NOTIFICATIONS_DYNAMO_TABLE_NAME)
+
+        self.user_records = {}  # user_id -> user_record
+
+    def get_user_record(self, user_id: str) -> dict:
+        """Get user record from DynamoDB"""
+        if user_id not in self.user_records:
+            response = self.users_table.get_item(Key={"user_id": user_id})
+            self.user_records[user_id] = response.get("Item", {})
+        return self.user_records[user_id]
 
     def get_active_notifications(self) -> list[dict]:
         """Fetch all active notifications from DynamoDB with pagination"""
         logger.info("Fetching active notifications from DynamoDB")
 
         notifications = []
-        response = notifications_table.scan()
+        response = self.notifications_table.scan()
 
         while True:
             notifications.extend(response.get("Items", []))
 
             if "LastEvaluatedKey" not in response:
                 break
-            response = notifications_table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+            response = self.notifications_table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
 
         logger.info("Found active notifications", extra={"notification_count": len(notifications)})
         return notifications
@@ -211,24 +223,31 @@ class NotificationService:
         </html>
         """
 
-    def save_sent_notifications(self, course_id: str, query: str, chunk_ids: list[str]) -> bool:
-        """Save sent notifications with PK=course_id#query and SK=chunk_id"""
+    def save_sent_notifications(
+        self, user_id: str, course_id: str, query: str, chunk_ids: list[str]
+    ) -> bool:
+        """Save sent notifications with PK=user_id#course_id#query and SK=chunk_id"""
         if not chunk_ids:
             return True
 
         logger.info(
             "Writing notifications to sent_notifications_table",
-            extra={"course_id": course_id, "query": query, "chunk_count": len(chunk_ids)},
+            extra={
+                "user_id": user_id,
+                "course_id": course_id,
+                "query": query,
+                "chunk_count": len(chunk_ids),
+            },
         )
 
         try:
-            pk = f"{course_id}#{query}"
+            pk = f"{user_id}#{course_id}#{query}"
 
-            with sent_notifications_table.batch_writer() as batch:
+            with self.sent_notifications_table.batch_writer() as batch:
                 for chunk_id in chunk_ids:
                     batch.put_item(
                         Item={
-                            "course_id#query": pk,  # PK
+                            "user_id#course_id#query": pk,  # PK
                             "chunk_id": chunk_id,  # SK
                             "course_id": course_id,
                             "query": query,
@@ -237,46 +256,69 @@ class NotificationService:
 
             logger.info(
                 "Successfully wrote notifications",
-                extra={"course_id": course_id, "query": query, "chunk_count": len(chunk_ids)},
+                extra={
+                    "user_id": user_id,
+                    "course_id": course_id,
+                    "query": query,
+                    "chunk_count": len(chunk_ids),
+                },
             )
             return True
 
         except Exception:
             logger.exception(
                 "Failed to write notifications",
-                extra={"course_id": course_id, "query": query, "chunk_count": len(chunk_ids)},
+                extra={
+                    "user_id": user_id,
+                    "course_id": course_id,
+                    "query": query,
+                    "chunk_count": len(chunk_ids),
+                },
             )
             return False
 
-    def update_notification_limit(self, course_id: str, query: str, increment: int) -> bool:
+    def update_notification_limit(
+        self, user_id: str, course_id: str, query: str, increment: int
+    ) -> bool:
         """Update max_notifications counter in notifications table"""
         try:
-            notifications_table.update_item(
-                Key={"course_id": course_id, "query": query},
+            sort_key = f"{course_id}#{query}"
+            self.notifications_table.update_item(
+                Key={"user_id": user_id, "course_id#query": sort_key},
                 UpdateExpression="SET max_notifications = max_notifications + :inc",
                 ExpressionAttributeValues={":inc": increment},
             )
             logger.info(
                 "Updated max_notifications counter",
-                extra={"course_id": course_id, "query": query, "increment": increment},
+                extra={
+                    "user_id": user_id,
+                    "course_id": course_id,
+                    "query": query,
+                    "increment": increment,
+                },
             )
             return True
 
         except Exception:
             logger.exception(
                 "Failed to update max_notifications",
-                extra={"course_id": course_id, "query": query, "increment": increment},
+                extra={
+                    "user_id": user_id,
+                    "course_id": course_id,
+                    "query": query,
+                    "increment": increment,
+                },
             )
             return False
 
-    def get_sent_chunk_ids(self, course_id: str, query: str) -> set[str]:
-        """Query sent_notifications_table to get all chunk_ids for this course_id#query"""
-        pk = f"{course_id}#{query}"
+    def get_sent_chunk_ids(self, user_id: str, course_id: str, query: str) -> set[str]:
+        """Query sent_notifications_table to get all chunk_ids for this user_id#course_id#query"""
+        pk = f"{user_id}#{course_id}#{query}"
 
         try:
             chunk_ids = set()
-            response = sent_notifications_table.query(
-                KeyConditionExpression=Key("course_id#query").eq(pk)
+            response = self.sent_notifications_table.query(
+                KeyConditionExpression=Key("user_id#course_id#query").eq(pk)
             )
 
             while True:
@@ -284,37 +326,48 @@ class NotificationService:
 
                 if "LastEvaluatedKey" not in response:
                     break
-                response = sent_notifications_table.query(
-                    KeyConditionExpression=Key("course_id#query").eq(pk),
+                response = self.sent_notifications_table.query(
+                    KeyConditionExpression=Key("user_id#course_id#query").eq(pk),
                     ExclusiveStartKey=response["LastEvaluatedKey"],
                 )
 
             logger.info(
                 "Found previously sent notifications",
-                extra={"course_id": course_id, "query": query, "sent_count": len(chunk_ids)},
+                extra={
+                    "user_id": user_id,
+                    "course_id": course_id,
+                    "query": query,
+                    "sent_count": len(chunk_ids),
+                },
             )
             return chunk_ids
 
         except Exception:
             logger.exception(
-                "Failed to query sent notifications", extra={"course_id": course_id, "query": query}
+                "Failed to query sent notifications",
+                extra={"user_id": user_id, "course_id": course_id, "query": query},
             )
             return set()
 
     def process_notification(self, notification_data: dict) -> int:
         """Process a single notification configuration"""
+        user_record = self.get_user_record(notification_data["user_id"])
+        recipient_email = user_record.get("email", SES_RECIPIENT_EMAIL)
+
         config = NotificationConfig(
+            user_id=notification_data["user_id"],
             query=notification_data["query"],
             course_id=notification_data["course_id"],
             course_name=notification_data["course_display_name"],
             threshold=notification_data["notification_threshold"],
             top_k=int(notification_data["max_notifications"]),
-            recipient_email=notification_data.get("email", SES_RECIPIENT_EMAIL),
+            recipient_email=recipient_email,
         )
 
         logger.info(
             "Processing notification",
             extra={
+                "user_id": config.user_id,
                 "course_id": config.course_id,
                 "course_name": config.course_name,
                 "query": config.query,
@@ -324,8 +377,10 @@ class NotificationService:
         )
 
         try:
-            # Get all previously sent chunk_ids for this course_id#query
-            sent_chunk_ids_set = self.get_sent_chunk_ids(config.course_id, config.query)
+            # Get all previously sent chunk_ids for this user_id#course_id#query
+            sent_chunk_ids_set = self.get_sent_chunk_ids(
+                config.user_id, config.course_id, config.query
+            )
 
             # Search for matching embeddings
             embeddings = self.search_embeddings(config.query, config.course_id, config.top_k)
@@ -340,13 +395,16 @@ class NotificationService:
                     new_sent_chunk_ids.append(match.chunk_id)
 
             if new_sent_chunk_ids:
-                self.save_sent_notifications(config.course_id, config.query, new_sent_chunk_ids)
+                self.save_sent_notifications(
+                    config.user_id, config.course_id, config.query, new_sent_chunk_ids
+                )
                 self.update_notification_limit(
-                    config.course_id, config.query, len(new_sent_chunk_ids)
+                    config.user_id, config.course_id, config.query, len(new_sent_chunk_ids)
                 )
                 logger.info(
                     "Notification processing completed",
                     extra={
+                        "user_id": config.user_id,
                         "course_id": config.course_id,
                         "query": config.query,
                         "notifications_sent": len(new_sent_chunk_ids),
@@ -356,14 +414,22 @@ class NotificationService:
 
             logger.info(
                 "No new notifications to send",
-                extra={"course_id": config.course_id, "query": config.query},
+                extra={
+                    "user_id": config.user_id,
+                    "course_id": config.course_id,
+                    "query": config.query,
+                },
             )
             return 0
 
         except Exception:
             logger.exception(
                 "Error processing notification",
-                extra={"course_id": config.course_id, "query": config.query},
+                extra={
+                    "user_id": config.user_id,
+                    "course_id": config.course_id,
+                    "query": config.query,
+                },
             )
             return 0
 
