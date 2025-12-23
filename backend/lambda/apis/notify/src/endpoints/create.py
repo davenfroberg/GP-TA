@@ -45,34 +45,13 @@ def compute_notification_threshold(closest_score: float) -> float:
     return max(MIN_THRESHOLD, min(threshold, MAX_THRESHOLD))
 
 
-def create_notification(event: dict) -> dict:
+def create_notification(event: dict, user_id: str) -> dict:
     dynamo = boto3.resource("dynamodb")
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
     headers = {"Content-Type": "application/json"}
 
     try:
-        logger.info("Creating notification")
-
-        request_context = event.get("requestContext", {})
-        authorizer = request_context.get("authorizer", {})
-
-        user_id = None
-        if authorizer:
-            jwt = authorizer.get("jwt", {})
-            if jwt:
-                claims = jwt.get("claims", {})
-                if claims:
-                    user_id = claims.get("sub")
-
-        if not user_id:
-            logger.warning("Missing user_id in authorizer claims")
-            return {
-                "statusCode": 401,
-                "headers": headers,
-                "body": json.dumps({"error": "Unauthorized: Missing user_id"}),
-            }
-
-        logger.debug("Request authenticated", extra={"user_id": user_id})
+        logger.info("Creating notification", extra={"user_id": user_id})
 
         if not event.get("body"):
             logger.warning("Missing request body")

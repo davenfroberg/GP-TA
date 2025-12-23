@@ -50,37 +50,10 @@ def get_notifications_from_dynamo(user_id: str) -> list[dict]:
     return items
 
 
-def get_all_notifications(event: dict) -> dict:
+def get_all_notifications(event: dict, user_id: str) -> dict:
     headers = {"Content-Type": "application/json"}
 
     try:
-        request_context = event.get("requestContext", {})
-        authorizer = request_context.get("authorizer", {})
-
-        user_id = None
-        if authorizer:
-            jwt = authorizer.get("jwt", {})
-            if jwt:
-                claims = jwt.get("claims", {})
-                if claims:
-                    user_id = claims.get("sub")
-
-        if not user_id:
-            logger.warning(
-                "Missing user_id in authorizer",
-                extra={
-                    "has_authorizer": bool(authorizer),
-                    "authorizer_keys": list(authorizer.keys()) if authorizer else None,
-                },
-            )
-            return {
-                "statusCode": 401,
-                "headers": headers,
-                "body": json.dumps({"error": "Unauthorized: Missing user_id"}),
-            }
-
-        logger.debug("Request authenticated", extra={"user_id": user_id})
-
         items = get_notifications_from_dynamo(user_id)
         return {
             "statusCode": 200,

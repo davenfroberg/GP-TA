@@ -71,39 +71,12 @@ def delete_sent_notifications(user_id: str, user_query: str, course_id: str):
         raise
 
 
-def delete_notification(event: dict) -> dict:
+def delete_notification(event: dict, user_id: str) -> dict:
     table = dynamo.Table(NOTIFICATIONS_TABLE_NAME)
     headers = {"Content-Type": "application/json"}
 
     try:
-        logger.info("Processing delete notification request")
-
-        request_context = event.get("requestContext", {})
-        authorizer = request_context.get("authorizer", {})
-
-        user_id = None
-        if authorizer:
-            jwt = authorizer.get("jwt", {})
-            if jwt:
-                claims = jwt.get("claims", {})
-                if claims:
-                    user_id = claims.get("sub")
-
-        if not user_id:
-            logger.warning(
-                "Missing user_id in authorizer",
-                extra={
-                    "has_authorizer": bool(authorizer),
-                    "authorizer_keys": list(authorizer.keys()) if authorizer else None,
-                },
-            )
-            return {
-                "statusCode": 401,
-                "headers": headers,
-                "body": json.dumps({"error": "Unauthorized: Missing user_id"}),
-            }
-
-        logger.debug("Request authenticated", extra={"user_id": user_id})
+        logger.info("Processing delete notification request", extra={"user_id": user_id})
 
         params = event.get("queryStringParameters") or {}
 
