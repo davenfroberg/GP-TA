@@ -51,6 +51,9 @@ export default function PiazzaChat() {
   // Add loading state to track which tabs are processing messages
   const [loadingTabs, setLoadingTabs] = useState<Set<number>>(new Set());
 
+  // Add loading state to track which tabs are being deleted
+  const [deletingTabs, setDeletingTabs] = useState<Set<number>>(new Set());
+
   // Refs
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const wsConnectionsRef = useRef<Map<number, WebSocket>>(new Map());
@@ -297,6 +300,18 @@ export default function PiazzaChat() {
           },
         }
       );
+
+      const testMessagesResponse = await fetch(
+        `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/messages`,
+        {
+          headers: {
+            "Authorization": `Bearer ${idToken}`,
+          },
+        }
+      );
+      const testMessagesData = await testMessagesResponse.json();
+      console.log("testMessagesData", testMessagesData);
+
       const data = await response.json();
       setNotifications(data);
       localStorage.setItem('gp-ta-notifications', JSON.stringify(data));
@@ -720,6 +735,9 @@ export default function PiazzaChat() {
     const trimmed = input.trim();
     if (!trimmed) return;
 
+    // Check if this is the first message BEFORE adding messages to the tab
+    const isFirstMessage = activeTab.messages.length === 0;
+
     const userMsgId = Date.now();
     const userMsg: Message = {
       id: userMsgId,
@@ -741,6 +759,72 @@ export default function PiazzaChat() {
     addMessagesToTab(activeTabId, [userMsg, assistantMsg]);
     setInput("");
     messageBufferRef.current.set(activeTabId, "");
+
+    // Save message to backend via POST /messages (and create tab if first message)
+    (async () => {
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session.tokens?.idToken?.toString();
+
+        if (!idToken) {
+          console.error("No authentication token available for saving message");
+          return;
+        }
+
+        // Create tab on backend if this is the first message
+        if (isFirstMessage) {
+          try {
+            const tabResponse = await fetch(
+              `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/tabs`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({
+                  title: activeTab.title,
+                  tab_id: activeTabId,
+                }),
+              }
+            );
+
+            if (!tabResponse.ok) {
+              console.error("Failed to create tab:", tabResponse.status, await tabResponse.text());
+            }
+          } catch (error) {
+            console.error("Error creating tab on backend:", error);
+          }
+        }
+
+        // Save message to backend
+        const response = await fetch(
+          `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/messages`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              tab_id: activeTabId,
+              course_display_name: activeTab.selectedCourse,
+              message: {
+                id: userMsgId,
+                role: userMsg.role,
+                text: userMsg.text,
+              },
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          console.error("Failed to save message:", response.status, await response.text());
+        }
+      } catch (error) {
+        console.error("Error saving message to backend:", error);
+      }
+    })();
 
     // Set loading state immediately when starting to send
     setTabLoading(activeTabId, true);
@@ -782,10 +866,13 @@ export default function PiazzaChat() {
             ws.send(JSON.stringify({
               action: "chat",
               message: trimmed,
+              tab_id: activeTabId,
               course_name: activeTab.selectedCourse.toLowerCase().replace(" ", ""),
               model: chatConfig.model,
               prioritizeInstructor: chatConfig.prioritizeInstructor,
-              token: idToken, // Include JWT token in message
+              user_message_id: userMsgId,
+              assistant_message_id: assistantMsgId,
+              token: idToken,
             }));
           } catch (error: any) {
             console.error("Failed to send message:", error);
@@ -886,6 +973,8 @@ export default function PiazzaChat() {
       messages: [],
       selectedCourse: COURSES[0]
     };
+
+    // Immediately add tab to local state (no backend call - will be created when first message is sent)
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(id);
   }, [tabs.length, setTabs, setActiveTabId]);
@@ -895,64 +984,191 @@ export default function PiazzaChat() {
   }, []);
 
   const saveTabTitle = useCallback((tabId: number, newTitle: string) => {
-    setTabs(prev =>
-      prev.map(t =>
-        t.id === tabId
-          ? { ...t, title: newTitle.trim() || "Untitled" }
-          : t
-      )
-    );
-    setEditingTab(null);
-  }, [setTabs]);
+    const trimmedTitle = newTitle.trim() || "Untitled";
+
+    // Find the tab to check if it has messages (only update backend if tab exists there)
+    const tabToUpdate = tabs.find(t => t.id === tabId);
+    const hasMessages = tabToUpdate && tabToUpdate.messages.length > 0;
+
+    // If tab has no messages, just update locally (tab doesn't exist on backend yet)
+    if (!hasMessages) {
+      setTabs(prev =>
+        prev.map(t =>
+          t.id === tabId
+            ? { ...t, title: trimmedTitle }
+            : t
+        )
+      );
+      setEditingTab(null);
+      return;
+    }
+
+    // Tab has messages, so it exists on backend - update it there first
+    (async () => {
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session.tokens?.idToken?.toString();
+
+        if (!idToken) {
+          console.error("No authentication token available for updating tab");
+          return;
+        }
+
+        const response = await fetch(
+          `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/tabs/${tabId}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+              title: trimmedTitle,
+            }),
+          }
+        );
+
+        // Only update local state if backend update succeeds
+        if (!response.ok) {
+          console.error("Failed to update tab title:", response.status, await response.text());
+          return;
+        }
+
+        // Backend update succeeded, update local state
+        setTabs(prev =>
+          prev.map(t =>
+            t.id === tabId
+              ? { ...t, title: trimmedTitle }
+              : t
+          )
+        );
+        setEditingTab(null);
+      } catch (error) {
+        console.error("Error updating tab title:", error);
+      }
+    })();
+  }, [tabs, setTabs]);
 
   const closeTab = useCallback((tabId: number) => {
-    setTabs(prev => {
-      if (prev.length === 1) return prev;
+    // Don't allow closing the last tab
+    if (tabs.length === 1) return;
 
-      const tabIndex = prev.findIndex(t => t.id === tabId);
-      const newTabs = prev.filter(t => t.id !== tabId);
+    // Find the tab to check if it has messages
+    const tabToClose = tabs.find(t => t.id === tabId);
+    const hasMessages = tabToClose && tabToClose.messages.length > 0;
 
-      // Clean up refs and WebSocket connection for closed tab
-      messageBufferRef.current.delete(tabId);
-      currentAssistantIdRef.current.delete(tabId);
-      tabScrollPositionsRef.current.delete(tabId); // Clean up scroll position
+    // Set deleting state
+    setDeletingTabs(prev => new Set(prev).add(tabId));
 
-      // Clean up timeout for closed tab
-      const timeout = responseTimeoutRef.current.get(tabId);
-      if (timeout) {
-        clearTimeout(timeout);
-        responseTimeoutRef.current.delete(tabId);
-      }
+    // Delete tab from backend first (only if it has messages), only proceed with local deletion if successful
+    (async () => {
+      // If tab has no messages, skip backend deletion and just delete locally
+      if (!hasMessages) {
+        // No backend call needed, proceed directly to local deletion
+      } else {
+        // Tab has messages, so it exists on backend - delete it there first
+        try {
+          const session = await fetchAuthSession();
+          const idToken = session.tokens?.idToken?.toString();
 
-      // Clean up loading state for closed tab
-      setTabLoading(tabId, false);
+          if (!idToken) {
+            console.error("No authentication token available for deleting tab");
+            setDeletingTabs(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(tabId);
+              return newSet;
+            });
+            return; // Don't proceed with local deletion if auth fails
+          }
 
-      const ws = wsConnectionsRef.current.get(tabId);
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-      wsConnectionsRef.current.delete(tabId);
+          const response = await fetch(
+            `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/tabs/${tabId}`,
+            {
+              method: "DELETE",
+              headers: {
+                "Authorization": `Bearer ${idToken}`,
+              },
+            }
+          );
 
-      // Handle active tab switching if we're closing the active tab
-      if (tabId === activeTabId) {
-        const nextTab = newTabs[tabIndex - 1] || newTabs[tabIndex] || newTabs[0];
-        if (nextTab) {
-          setActiveTabId(nextTab.id);
-        } else {
-          const newId = Date.now();
-          setActiveTabId(newId);
-          return [{
-            id: newId,
-            title: "Chat 1",
-            messages: [],
-            selectedCourse: COURSES[0]
-          }];
+          // Only proceed with local deletion if backend deletion succeeds
+          // 200 = successful deletion, 404 = tab doesn't exist (shouldn't happen if tab has messages, but handle gracefully)
+          if (!response.ok && response.status !== 404) {
+            console.error("Failed to delete tab from backend:", response.status, await response.text());
+            setDeletingTabs(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(tabId);
+              return newSet;
+            });
+            return; // Don't proceed with local deletion if backend deletion failed
+          }
+        } catch (error) {
+          console.error("Error deleting tab from backend:", error);
+          // Clear deleting state on error
+          setDeletingTabs(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(tabId);
+            return newSet;
+          });
+          // Don't proceed with local deletion if there was an error
+          return;
         }
       }
 
-      return newTabs;
-    });
-  }, [activeTabId, setTabs, setActiveTabId, setTabLoading]);
+      // Backend deletion succeeded (or tab had no messages), now remove tab from local state and clean up
+      setTabs(prev => {
+          const tabIndex = prev.findIndex(t => t.id === tabId);
+          const newTabs = prev.filter(t => t.id !== tabId);
+
+          // Clean up refs and WebSocket connection for closed tab
+          messageBufferRef.current.delete(tabId);
+          currentAssistantIdRef.current.delete(tabId);
+          tabScrollPositionsRef.current.delete(tabId); // Clean up scroll position
+
+          // Clean up timeout for closed tab
+          const timeout = responseTimeoutRef.current.get(tabId);
+          if (timeout) {
+            clearTimeout(timeout);
+            responseTimeoutRef.current.delete(tabId);
+          }
+
+          // Clean up loading state for closed tab
+          setTabLoading(tabId, false);
+
+          const ws = wsConnectionsRef.current.get(tabId);
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close();
+          }
+          wsConnectionsRef.current.delete(tabId);
+
+          // Handle active tab switching if we're closing the active tab
+          if (tabId === activeTabId) {
+            const nextTab = newTabs[tabIndex - 1] || newTabs[tabIndex] || newTabs[0];
+            if (nextTab) {
+              setActiveTabId(nextTab.id);
+            } else {
+              const newId = Date.now();
+              setActiveTabId(newId);
+              return [{
+                id: newId,
+                title: "Chat 1",
+                messages: [],
+                selectedCourse: COURSES[0]
+              }];
+            }
+          }
+
+          return newTabs;
+        });
+
+      // Clear deleting state after successful deletion
+      setDeletingTabs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(tabId);
+        return newSet;
+      });
+    })();
+  }, [tabs.length, tabs, activeTabId, setTabs, setActiveTabId, setTabLoading]);
 
   // In your parent component that manages the tabs
   useEffect(() => {
@@ -1022,6 +1238,7 @@ export default function PiazzaChat() {
               onNotificationsClick={handleNotificationsToggle}
               hasUnseenNotifications={hasUnseenNotifications}
               onSettingsClick={() => setIsSettingsOpen(true)}
+              deletingTabs={deletingTabs}
             />
           </div>
 

@@ -1,13 +1,13 @@
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from botocore.exceptions import ClientError
 
-from utils.constants import QUERY_PATTERNS
+from utils.constants import MESSAGES_TABLE_NAME, QUERY_PATTERNS
 from utils.logger import logger
 
 
@@ -139,4 +139,65 @@ def save_student_query(
                 "query_id": query_id,
                 "user_id": user_id,
             },
+        )
+
+
+def save_assistant_message(
+    user_id: str,
+    tab_id: int,
+    assistant_message_id: int,
+    text: str,
+    course_name: str | None = None,
+    citations: list[dict] | None = None,
+    citation_map: dict[str, dict[str, str]] | None = None,
+    needs_more_context: bool | None = None,
+) -> None:
+    """Save an assistant message to DynamoDB."""
+    try:
+        from utils.clients import dynamo
+
+        messages_table = dynamo().Table(MESSAGES_TABLE_NAME)
+        created_at = datetime.now(timezone.utc).isoformat()
+        sort_key = f"{tab_id}#{created_at}"
+
+        assistant_message = {
+            "user_id": user_id,
+            "tab_id#created_at": sort_key,
+            "tab_id": int(tab_id),
+            "message_id": assistant_message_id,
+            "role": "assistant",
+            "text": text,
+            "created_at": created_at,
+            "notification_created": False,
+            "posted_to_piazza": False,
+        }
+
+        if course_name:
+            assistant_message["course_name"] = course_name
+
+        if citations:
+            assistant_message["citations"] = citations
+
+        if citation_map:
+            assistant_message["citation_map"] = citation_map
+
+        if needs_more_context is not None:
+            assistant_message["needs_more_context"] = needs_more_context
+
+        messages_table.put_item(Item=assistant_message)
+
+        logger.info(
+            "Saved assistant message to DynamoDB",
+            extra={
+                "user_id": user_id,
+                "tab_id": tab_id,
+                "message_id": assistant_message_id,
+                "has_citations": bool(citations),
+                "needs_more_context": needs_more_context,
+            },
+        )
+    except Exception:
+        logger.exception(
+            "Failed to save assistant message to DynamoDB",
+            extra={"user_id": user_id, "tab_id": tab_id, "message_id": assistant_message_id},
         )

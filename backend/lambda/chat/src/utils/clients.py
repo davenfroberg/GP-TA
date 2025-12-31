@@ -3,6 +3,7 @@ from functools import cache
 import boto3
 from openai import OpenAI
 from pinecone import Pinecone
+
 from utils.constants import AWS_REGION_NAME, SECRETS
 from utils.utils import get_secret_api_key
 

@@ -9,7 +9,7 @@ from enums.WebSocketType import WebSocketType
 from utils.clients import apigw, dynamo, openai
 from utils.constants import COURSES, EMBEDDING_MODEL, POSTS_TABLE_NAME, QUERIES_TABLE_NAME
 from utils.logger import logger
-from utils.utils import save_student_query, send_websocket_message
+from utils.utils import save_assistant_message, save_student_query, send_websocket_message
 
 dynamodb = boto3.resource("dynamodb")
 posts_table = dynamodb.Table(POSTS_TABLE_NAME)
@@ -127,6 +127,10 @@ def chat(
     intent: str,
     query_id: str,
     user_id: str,
+    tab_id: int,
+    user_message_id: int,
+    assistant_message_id: int,
+    course_display_name: str,
 ) -> dict[str, int]:
     apigw_management = apigw(domain_name, stage)
 
@@ -134,6 +138,7 @@ def chat(
     course_id = None
     days = 2
     summaries = []
+    full_response = ""  # Initialize to avoid UnboundLocalError in finally block
 
     try:
         if not query or not course_name:
@@ -161,6 +166,19 @@ def chat(
                         "message": no_updates_message[i : i + chunk_size],
                         "type": WebSocketType.CHUNK.value,
                     },
+                )
+
+            # Set full_response so it can be saved in the finally block
+            full_response = no_updates_message
+
+            # Save assistant message to DynamoDB
+            if tab_id:
+                save_assistant_message(
+                    user_id=user_id,
+                    tab_id=tab_id,
+                    assistant_message_id=assistant_message_id,
+                    text=no_updates_message,
+                    course_name=course_display_name,
                 )
 
             return {"statusCode": 200}
@@ -196,12 +214,17 @@ def chat(
             {"message": "Start streaming", "type": WebSocketType.START.value},
         )
 
+        # Accumulate full response text (reset if we got here)
+        full_response = ""
+
         for stream_event in stream:
             if stream_event.type == "response.output_text.delta":
+                delta = stream_event.delta
+                full_response += delta
                 send_websocket_message(
                     apigw_management,
                     connection_id,
-                    {"message": stream_event.delta, "type": WebSocketType.CHUNK.value},
+                    {"message": delta, "type": WebSocketType.CHUNK.value},
                 )
 
     except Exception:
@@ -245,6 +268,16 @@ def chat(
                 num_summaries_processed=len(summaries) if summaries else None,
                 summary_days=days,
                 user_id=user_id,
+            )
+
+        # Save assistant message to DynamoDB
+        if tab_id:
+            save_assistant_message(
+                user_id=user_id,
+                tab_id=tab_id,
+                assistant_message_id=assistant_message_id,
+                text=full_response.strip(),
+                course_name=course_display_name,
             )
 
     return {"statusCode": 200}

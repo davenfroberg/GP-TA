@@ -6,7 +6,7 @@ from enums.Intent import Intent
 from enums.WebSocketType import WebSocketType
 from predict_intent import predict_intent  # type: ignore ; b/c this is in lambda layer
 from utils.clients import apigw, openai
-from utils.constants import EMBEDDING_MODEL
+from utils.constants import COURSE_DISPLAY_NAMES, EMBEDDING_MODEL
 from utils.logger import logger
 from utils.utils import normalize_query, send_websocket_message
 
@@ -75,9 +75,13 @@ def lambda_handler(event: dict, context: dict) -> dict:
             return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized: Invalid token"})}
 
         message = body.get("message")
+        tab_id = body.get("tab_id")
         course_name = body.get("course_name")
+        course_display_name = COURSE_DISPLAY_NAMES.get(course_name, course_name)
         model = body.get("model", "gpt-5")
         prioritize_instructor = body.get("prioritizeInstructor", False)
+        user_message_id = body.get("user_message_id")
+        assistant_message_id = body.get("assistant_message_id")
 
         if not message:
             logger.warning("Missing message in request", extra={"connection_id": connection_id})
@@ -112,6 +116,10 @@ def lambda_handler(event: dict, context: dict) -> dict:
                     intent,
                     query_id,
                     user_id,
+                    tab_id,
+                    user_message_id,
+                    assistant_message_id,
+                    course_display_name,
                 )
             case Intent.SUMMARIZE.value:
                 from endpoints import summarize
@@ -128,6 +136,10 @@ def lambda_handler(event: dict, context: dict) -> dict:
                     intent,
                     query_id,
                     user_id,
+                    tab_id,
+                    user_message_id,
+                    assistant_message_id,
+                    course_display_name,
                 )
             case Intent.OVERVIEW.value:
                 from endpoints import overview
@@ -145,6 +157,10 @@ def lambda_handler(event: dict, context: dict) -> dict:
                     intent,
                     query_id,
                     user_id,
+                    tab_id,
+                    user_message_id,
+                    assistant_message_id,
+                    course_display_name,
                 )
             case _:
                 logger.warning(

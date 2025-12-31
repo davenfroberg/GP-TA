@@ -4,7 +4,7 @@ from enums.WebSocketType import WebSocketType
 from utils.clients import apigw, dynamo, openai
 from utils.constants import COURSES, EMBEDDING_MODEL, QUERIES_TABLE_NAME
 from utils.logger import logger
-from utils.utils import save_student_query, send_websocket_message
+from utils.utils import save_assistant_message, save_student_query, send_websocket_message
 
 
 def create_system_prompt() -> str:
@@ -29,6 +29,10 @@ def chat(
     intent: str,
     query_id: str,
     user_id: str,
+    tab_id: int,
+    user_message_id: int,
+    assistant_message_id: int,
+    course_display_name: str,
 ) -> dict[str, int]:
     """Main function to handle chat requests."""
 
@@ -65,13 +69,18 @@ def chat(
             {"message": "Start streaming", "type": WebSocketType.START.value},
         )
 
+        # Accumulate full response text
+        full_response = ""
+
         # Stream response
         for stream_event in stream:
             if stream_event.type == "response.output_text.delta":
+                delta = stream_event.delta
+                full_response += delta
                 send_websocket_message(
                     apigw_management,
                     connection_id,
-                    {"message": stream_event.delta, "type": WebSocketType.CHUNK.value},
+                    {"message": delta, "type": WebSocketType.CHUNK.value},
                 )
 
         # # Send citations
@@ -120,6 +129,16 @@ def chat(
                 connection_id=connection_id,
                 processing_time_ms=processing_time_ms,
                 user_id=user_id,
+            )
+
+        # Save assistant message to DynamoDB
+        if tab_id:
+            save_assistant_message(
+                user_id=user_id,
+                tab_id=tab_id,
+                assistant_message_id=assistant_message_id,
+                text=full_response.strip(),
+                course_name=course_display_name,
             )
 
     return {"statusCode": 200}

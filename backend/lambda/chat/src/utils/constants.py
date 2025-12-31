@@ -1,7 +1,7 @@
 SECRETS = {"PINECONE": "pinecone_key", "OPENAI": "open_ai_key"}
 PINECONE_INDEX_NAME = "piazza-chunks"
 AWS_REGION_NAME = "us-west-2"
-
+MESSAGES_TABLE_NAME = "messages"
 CHUNKS_TABLE_NAME = "piazza-chunks"
 QUERIES_TABLE_NAME = "student-queries"
 POSTS_TABLE_NAME = "piazza-posts"
@@ -14,6 +14,14 @@ COURSES = {
     "cpsc121": "mcv0sbotg6s51",
     "cpsc404": "mdp45gef5b21ej",
     "cpsc418": "met4o2esgko2zu",
+}
+
+COURSE_DISPLAY_NAMES = {
+    "cpsc330": "CPSC 330",
+    "cpsc110": "CPSC 110",
+    "cpsc121": "CPSC 121",
+    "cpsc404": "CPSC 404",
+    "cpsc418": "CPSC 418",
 }
 
 QUERY_PATTERNS = {

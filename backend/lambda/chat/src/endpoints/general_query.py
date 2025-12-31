@@ -12,7 +12,7 @@ from utils.constants import (
     QUERIES_TABLE_NAME,
 )
 from utils.logger import logger
-from utils.utils import save_student_query, send_websocket_message
+from utils.utils import save_assistant_message, save_student_query, send_websocket_message
 
 CHUNKS_TO_USE = 9
 CLOSENESS_THRESHOLD = 0.35
@@ -452,6 +452,10 @@ def chat(
     intent: str,
     query_id: str,
     user_id: str,
+    tab_id: int,
+    user_message_id: int,
+    assistant_message_id: int,
+    course_display_name: str,
 ) -> dict[str, int]:
     """Main function to handle chat requests."""
 
@@ -463,6 +467,8 @@ def chat(
     needs_more_context = False
     top_chunks = []
     citations = []
+    citation_map = {}
+    body_content_text = ""
 
     try:
         if not query or not course_name:
@@ -512,6 +518,7 @@ def chat(
         after_body_buffer = ""  # Separate buffer for content after BODY_END
         lookahead_size = 15  # Hold back characters to detect BODY_END
         full_response = ""  # Add this to capture everything
+        body_content_text = ""  # Reset for this request (accumulate the actual body content)
 
         # Stream response
         for stream_event in stream:
@@ -532,6 +539,7 @@ def chat(
             if inside_body and "BODY_END" in buffer:
                 body_end_idx = buffer.find("BODY_END")
                 body_content = buffer[:body_end_idx].rstrip()
+                body_content_text += body_content  # Accumulate body content
 
                 # Send only the body content
                 if body_content:
@@ -558,12 +566,18 @@ def chat(
             # Normal streaming with lookahead
             if inside_body and len(buffer) > lookahead_size:
                 to_send = buffer[:-lookahead_size]
+                body_content_text += to_send  # Accumulate body content
                 send_websocket_message(
                     apigw_management,
                     connection_id,
                     {"message": to_send, "type": WebSocketType.CHUNK.value},
                 )
                 buffer = buffer[-lookahead_size:]
+
+        # Handle case where body content wasn't fully captured (shouldn't happen, but safety check)
+        if inside_body and buffer:
+            # Still inside body but stream ended - capture remaining buffer
+            body_content_text += buffer.rstrip()
 
         # Parse NOT_ENOUGH_CONTEXT from the after_body_buffer
         if "NOT_ENOUGH_CONTEXT=" in after_body_buffer:
@@ -664,6 +678,21 @@ def chat(
                 num_citations=len(citations),
                 citation_post_numbers=citation_post_numbers if citation_post_numbers else None,
                 user_id=user_id,
+            )
+        # Save assistant message to DynamoDB
+        if tab_id:
+            assistant_text = (
+                body_content_text.strip() if body_content_text.strip() else full_response
+            )
+            save_assistant_message(
+                user_id=user_id,
+                tab_id=tab_id,
+                assistant_message_id=assistant_message_id,
+                text=assistant_text,
+                course_name=course_display_name,
+                citations=citations,
+                citation_map=citation_map,
+                needs_more_context=needs_more_context,
             )
 
     return {"statusCode": 200}
