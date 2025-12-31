@@ -9,7 +9,6 @@ import TabBar from "./TabBar";
 import ChatInput from "./ChatInput";
 import MessageBubble from "./MessageBubble";
 import ExamplePrompts from "./ExamplePrompts";
-import { usePersistedState } from "../../hooks/usePersistedState";
 import PostGeneratorPopup from "./PostGeneratorPopup";
 import NotificationsModal from "./NotificationsModal";
 import SettingsModal from "./SettingsModal";
@@ -20,13 +19,12 @@ export default function PiazzaChat() {
   const { logout } = useAuth();
 
   // State management
-  const [tabs, setTabs] = usePersistedState<ChatTab[]>('gp-ta-tabs', [{
-    id: Date.now(),
-    title: "Chat 1",
-    messages: [],
-    selectedCourse: COURSES[0]
-  }]);
-  const [activeTabId, setActiveTabId] = usePersistedState<number>('gp-ta-active-tab', Date.now());
+  const [tabs, setTabs] = useState<ChatTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<number>(() => {
+    // Load activeTabId from localStorage if available, otherwise use current timestamp
+    const stored = localStorage.getItem('gp-ta-active-tab');
+    return stored ? parseInt(stored, 10) : Date.now();
+  });
   const [chatConfig, setChatConfig] = useState<ChatConfig>({
     prioritizeInstructor: false,
     model: "gpt-5"
@@ -54,6 +52,14 @@ export default function PiazzaChat() {
   // Add loading state to track which tabs are being deleted
   const [deletingTabs, setDeletingTabs] = useState<Set<number>>(new Set());
 
+  // Loading state for initial tabs/messages load
+  const [tabsLoading, setTabsLoading] = useState(true);
+
+  // Save activeTabId to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('gp-ta-active-tab', activeTabId.toString());
+  }, [activeTabId]);
+
   // Refs
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const wsConnectionsRef = useRef<Map<number, WebSocket>>(new Map());
@@ -64,12 +70,25 @@ export default function PiazzaChat() {
   const shouldAutoScrollRef = useRef<boolean>(true);
   const tabScrollPositionsRef = useRef<Map<number, number>>(new Map());
   const responseTimeoutRef = useRef<Map<number, number>>(new Map());
+  const isLoadingRef = useRef(false);
 
   // Memoized derived state
-  const activeTab = useMemo(() =>
-    tabs.find(t => t.id === activeTabId)!,
-    [tabs, activeTabId]
-  );
+  const activeTab = useMemo(() => {
+    const tab = tabs.find(t => t.id === activeTabId);
+    // Return a default tab if not found (during loading or if tab was deleted)
+    if (!tab && tabs.length > 0) {
+      return tabs[0];
+    }
+    if (!tab) {
+      return {
+        id: activeTabId,
+        title: "Chat 1",
+        messages: [],
+        selectedCourse: COURSES[0]
+      };
+    }
+    return tab;
+  }, [tabs, activeTabId]);
 
   // Check if current tab is loading
   const isCurrentTabLoading = useMemo(() =>
@@ -301,17 +320,6 @@ export default function PiazzaChat() {
         }
       );
 
-      const testMessagesResponse = await fetch(
-        `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/messages`,
-        {
-          headers: {
-            "Authorization": `Bearer ${idToken}`,
-          },
-        }
-      );
-      const testMessagesData = await testMessagesResponse.json();
-      console.log("testMessagesData", testMessagesData);
-
       const data = await response.json();
       setNotifications(data);
       localStorage.setItem('gp-ta-notifications', JSON.stringify(data));
@@ -324,7 +332,174 @@ export default function PiazzaChat() {
 
   useEffect(() => {
     fetchNotifications();
-  }, [fetchNotifications]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
+  // Load tabs and messages from backend on component mount
+  useEffect(() => {
+    // Prevent multiple simultaneous loads
+    if (isLoadingRef.current) {
+      return;
+    }
+    isLoadingRef.current = true;
+    setTabsLoading(true);
+
+    const loadTabsAndMessages = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session.tokens?.idToken?.toString();
+
+        if (!idToken) {
+          console.error("No authentication token available");
+          // If no auth, create a default empty tab
+          const defaultTabId = Date.now();
+          setTabs([{
+            id: defaultTabId,
+            title: "Chat 1",
+            messages: [],
+            selectedCourse: COURSES[0]
+          }]);
+          setActiveTabId(defaultTabId);
+          return;
+        }
+
+        // Fetch all tabs
+        const tabsResponse = await fetch(
+          `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/tabs`,
+          {
+            headers: {
+              "Authorization": `Bearer ${idToken}`,
+            },
+          }
+        );
+
+        if (!tabsResponse.ok) {
+          console.error("Failed to fetch tabs:", tabsResponse.status);
+          // Create a default empty tab on error
+          const defaultTabId = Date.now();
+          setTabs([{
+            id: defaultTabId,
+            title: "Chat 1",
+            messages: [],
+            selectedCourse: COURSES[0]
+          }]);
+          setActiveTabId(defaultTabId);
+          return;
+        }
+
+        const tabsData = await tabsResponse.json();
+        const backendTabs = tabsData.tabs || [];
+
+        // If no tabs exist, create a default empty tab
+        if (backendTabs.length === 0) {
+          const defaultTabId = Date.now();
+          setTabs([{
+            id: defaultTabId,
+            title: "Chat 1",
+            messages: [],
+            selectedCourse: COURSES[0]
+          }]);
+          setActiveTabId(defaultTabId);
+          return;
+        }
+
+        // Load messages for each tab
+        const tabsWithMessages = await Promise.all(
+          backendTabs.map(async (tab: any) => {
+            // Capture tab.id in a const to ensure proper closure
+            const currentTabId = String(tab.id);
+            try {
+              const messagesResponse = await fetch(
+                `https://${import.meta.env.VITE_MESSAGES_API_ID}.execute-api.us-west-2.amazonaws.com/prod/messages?tab_id=${currentTabId}`,
+                {
+                  headers: {
+                    "Authorization": `Bearer ${idToken}`,
+                  },
+                }
+              );
+
+              let messages: Message[] = [];
+              if (messagesResponse.ok) {
+                const messagesData = await messagesResponse.json();
+                // Ensure messagesData is an array
+                const messagesArray = Array.isArray(messagesData) ? messagesData : [];
+
+                // Transform DynamoDB messages to frontend format
+                // Also filter by tab_id to ensure we only get messages for this specific tab
+                messages = messagesArray
+                  .filter((msg: any) => {
+                    // Filter by tab_id to ensure messages belong to this tab
+                    const msgTabId = String(msg.tab_id || '');
+                    return msgTabId === currentTabId;
+                  })
+                  .map((msg: any) => ({
+                    id: msg.message_id || msg.id,
+                    role: msg.role,
+                    text: msg.text || "",
+                    course: msg.course_name,
+                    // Optional fields that may not be in DynamoDB
+                    citations: msg.citations,
+                    citationMap: msg.citation_map,
+                    needsMoreContext: msg.needs_more_context,
+                  }))
+                  .sort((a: Message, b: Message) => a.id - b.id); // Sort by id (timestamp) ascending
+              }
+
+              // Derive selectedCourse from last user message, or default to COURSES[0]
+              const lastUserMessage = messages
+                .filter(m => m.role === 'user')
+                .pop();
+              const selectedCourse = lastUserMessage?.course || COURSES[0];
+
+              return {
+                id: tab.id,
+                title: tab.title,
+                messages,
+                selectedCourse,
+              } as ChatTab;
+            } catch (error) {
+              console.error(`Error loading messages for tab ${currentTabId}:`, error);
+              // Return tab with empty messages on error
+              return {
+                id: tab.id,
+                title: tab.title,
+                messages: [],
+                selectedCourse: COURSES[0],
+              } as ChatTab;
+            }
+          })
+        );
+
+        setTabs(tabsWithMessages);
+
+        // Set active tab - use stored activeTabId if it exists in loaded tabs, otherwise use first tab
+        const storedActiveTabId = parseInt(localStorage.getItem('gp-ta-active-tab') || '0', 10);
+        const activeTabExists = tabsWithMessages.some(t => t.id === storedActiveTabId);
+        if (activeTabExists) {
+          setActiveTabId(storedActiveTabId);
+        } else if (tabsWithMessages.length > 0) {
+          setActiveTabId(tabsWithMessages[0].id);
+        }
+      } catch (error) {
+        console.error("Error loading tabs and messages:", error);
+        // Create a default empty tab on error
+        const defaultTabId = Date.now();
+        setTabs([{
+          id: defaultTabId,
+          title: "Chat 1",
+          messages: [],
+          selectedCourse: COURSES[0]
+        }]);
+        setActiveTabId(defaultTabId);
+      } finally {
+        isLoadingRef.current = false;
+        setTabsLoading(false);
+      }
+    };
+
+    loadTabsAndMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
 
 
 
@@ -1053,6 +1228,7 @@ export default function PiazzaChat() {
     // Don't allow closing the last tab
     if (tabs.length === 1) return;
 
+
     // Find the tab to check if it has messages
     const tabToClose = tabs.find(t => t.id === tabId);
     const hasMessages = tabToClose && tabToClose.messages.length > 0;
@@ -1254,7 +1430,11 @@ export default function PiazzaChat() {
               scrollbarWidth: 'none'
             }}
           >
-            {activeTab.messages.length === 0 ? (
+            {tabsLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className={`animate-spin rounded-full h-12 w-12 border-2 ${isDark ? 'border-white/20 border-t-white' : 'border-gray-300 border-t-blue-600'}`} aria-label="Loading messages"></div>
+              </div>
+            ) : activeTab.messages.length === 0 ? (
               <ExamplePrompts themeClasses={themeClasses} />
             ) : (
               activeTab.messages.map((message, index) => (

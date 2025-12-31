@@ -2,6 +2,7 @@ import json
 
 from endpoints.create import create_message
 from endpoints.get_all_messages import get_all_messages
+from endpoints.get_tab_messages import get_tab_messages
 from utils.logger import logger
 
 
@@ -40,11 +41,19 @@ def lambda_handler(event: dict, context: dict) -> dict:
 
     body = json.loads(event.get("body", "{}"))
 
+    # Parse query parameters
+    query_params = event.get("queryStringParameters") or {}
+
     try:
         if method == "POST" and path.endswith("/messages"):
             return create_message(body, user_id)
         elif method == "GET" and path.endswith("/messages"):
-            return get_all_messages(user_id)
+            # Check if tab_id query parameter is provided
+            tab_id = query_params.get("tab_id")
+            if tab_id:
+                return get_tab_messages(user_id, tab_id)
+            else:
+                return get_all_messages(user_id)
         else:
             logger.warning(
                 "Unsupported HTTP method or path", extra={"method": method, "path": path}
