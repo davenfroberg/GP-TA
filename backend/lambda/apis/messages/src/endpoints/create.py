@@ -13,7 +13,8 @@ def create_message(body: dict, user_id: str) -> dict:
 
     try:
         logger.info("Creating message", extra={"user_id": user_id})
-        tab_id = body.get("tab_id")
+        raw_tab_id = body.get("tab_id")
+        tab_id = str(raw_tab_id) if raw_tab_id is not None else None
         message = body.get("message")
         created_at = datetime.now(timezone.utc).isoformat()
         course_display_name = body.get("course_display_name")
@@ -39,16 +40,29 @@ def create_message(body: dict, user_id: str) -> dict:
                 ),
             }
         sort_key = f"{tab_id}#{created_at}"
+        tab_id_str = str(tab_id)
+        message_id_str = str(message.get("id"))
+
         dynamo_item = {
             "user_id": user_id,
             "tab_id#created_at": sort_key,
-            "tab_id": int(tab_id),
-            "message_id": int(message.get("id")),  # comes from frontend for backwards compatibility
+            "tab_id": tab_id_str,
+            "message_id": message_id_str,
             "role": message.get("role"),
             "text": message.get("text"),
             "created_at": created_at,
             "course_name": course_display_name,
         }
+
+        logger.debug(
+            "Creating DynamoDB item",
+            extra={
+                "tab_id": tab_id_str,
+                "tab_id_type": type(tab_id_str).__name__,
+                "message_id": message_id_str,
+                "message_id_type": type(message_id_str).__name__,
+            },
+        )
         table.put_item(Item=dynamo_item)
 
         logger.info(
@@ -63,7 +77,7 @@ def create_message(body: dict, user_id: str) -> dict:
 
         # Update tab last_active_at
         tabs_table.update_item(
-            Key={"user_id": user_id, "tab_id": str(tab_id)},
+            Key={"user_id": user_id, "tab_id": tab_id},
             UpdateExpression="SET last_active_at = :last_active_at",
             ExpressionAttributeValues={":last_active_at": created_at},
         )

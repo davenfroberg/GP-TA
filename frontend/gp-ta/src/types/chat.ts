@@ -15,6 +15,7 @@ export interface Message {
   needsMoreContext?: boolean;
   notificationCreated?: boolean;
   notificationLoading?: boolean;
+  postedToPiazza?: boolean;
   isLoading?: boolean;
 }
 

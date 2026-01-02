@@ -441,6 +441,8 @@ export default function PiazzaChat() {
                     citations: msg.citations,
                     citationMap: msg.citation_map,
                     needsMoreContext: msg.needs_more_context,
+                    notificationCreated: msg.notification_created || false,
+                    postedToPiazza: msg.posted_to_piazza || false,
                   }))
                   .sort((a: Message, b: Message) => a.id - b.id); // Sort by id (timestamp) ascending
               }
@@ -749,7 +751,9 @@ export default function PiazzaChat() {
         },
         body: JSON.stringify({
           user_query: userQuery,
-          course_display_name: messageCourse
+          course_display_name: messageCourse,
+          tab_id: activeTabId,
+          message_id: messageId
         })
       });
 
@@ -1131,11 +1135,31 @@ export default function PiazzaChat() {
 
   const handlePostSuccess = useCallback((postLink: string) => {
     setIsPopupOpen(false);
+    const messageId = postToPiazzaMessageId;
     setPostToPiazzaMessageId(null);
     setPendingPostGeneration(false);
+
+    // Update the message to mark it as posted to Piazza
+    if (messageId) {
+      setTabs(prev =>
+        prev.map(tab =>
+          tab.id === activeTabId
+            ? {
+                ...tab,
+                messages: tab.messages.map(m =>
+                  m.id === messageId
+                    ? { ...m, postedToPiazza: true }
+                    : m
+                )
+              }
+            : tab
+        )
+      );
+    }
+
     const message = "I posted to Piazza for you! Keep an eye on Piazza for an answer to your question. See your post [here!](" + postLink + ")";
     addSimpleAIResponse(message);
-  }, [addSimpleAIResponse]);
+  }, [addSimpleAIResponse, postToPiazzaMessageId, activeTabId]);
 
   // Optimized tab management functions
   const createNewTab = useCallback(() => {

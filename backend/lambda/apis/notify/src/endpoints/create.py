@@ -7,6 +7,7 @@ from utils.constants import (
     COURSES,
     MAX_NOTIFICATIONS,
     MAX_THRESHOLD,
+    MESSAGES_TABLE_NAME,
     MIN_THRESHOLD,
     NOTIFICATIONS_TABLE_NAME,
     PINECONE_INDEX_NAME,
@@ -170,6 +171,121 @@ def create_notification(event: dict, user_id: str) -> dict:
                 "user_id": user_id,
             },
         )
+
+        tab_id = str(body.get("tab_id"))
+        message_id = str(body.get("message_id"))
+
+        if tab_id and message_id:
+            try:
+                messages_table = dynamo.Table(MESSAGES_TABLE_NAME)
+
+                try:
+                    response = messages_table.query(
+                        IndexName="message_id_index",
+                        KeyConditionExpression=(
+                            boto3.dynamodb.conditions.Key("user_id").eq(user_id)
+                            & boto3.dynamodb.conditions.Key("tab_id").eq(tab_id)
+                            & boto3.dynamodb.conditions.Key("message_id").eq(message_id)
+                        ),
+                    )
+                except Exception as gsi_error:
+                    logger.warning(
+                        "GSI query failed, using fallback method",
+                        extra={
+                            "error": str(gsi_error),
+                            "user_id": user_id,
+                            "tab_id": tab_id,
+                            "message_id": message_id,
+                        },
+                    )
+                    sort_key_prefix = f"{tab_id}#"
+                    response = messages_table.query(
+                        KeyConditionExpression=(
+                            boto3.dynamodb.conditions.Key("user_id").eq(user_id)
+                            & boto3.dynamodb.conditions.Key("tab_id#created_at").begins_with(
+                                sort_key_prefix
+                            )
+                        ),
+                        FilterExpression=boto3.dynamodb.conditions.Attr("message_id").eq(
+                            message_id
+                        ),
+                    )
+
+                items = response.get("Items", [])
+                if items:
+                    message_item = items[0]
+                    # Check if tab_id#created_at is in the GSI result
+                    # If not, query the base table to get the full item
+                    if "tab_id#created_at" not in message_item:
+                        # GSI doesn't project the base table sort key, query base table
+                        sort_key_prefix = f"{tab_id}#"
+                        base_response = messages_table.query(
+                            KeyConditionExpression=(
+                                boto3.dynamodb.conditions.Key("user_id").eq(user_id)
+                                & boto3.dynamodb.conditions.Key("tab_id#created_at").begins_with(
+                                    sort_key_prefix
+                                )
+                            ),
+                            FilterExpression=boto3.dynamodb.conditions.Attr("message_id").eq(
+                                message_id
+                            ),
+                        )
+                        base_items = base_response.get("Items", [])
+                        if base_items:
+                            message_item = base_items[0]
+                        else:
+                            logger.warning(
+                                "Message not found in base table after GSI query",
+                                extra={
+                                    "user_id": user_id,
+                                    "tab_id": tab_id,
+                                    "message_id": message_id,
+                                },
+                            )
+                            return {
+                                "statusCode": 201,
+                                "headers": headers,
+                                "body": json.dumps(
+                                    {"query": user_query, "course_name": course_display_name}
+                                ),
+                            }
+
+                    # Now we have tab_id#created_at, update the message
+                    messages_table.update_item(
+                        Key={
+                            "user_id": user_id,
+                            "tab_id#created_at": message_item["tab_id#created_at"],
+                        },
+                        UpdateExpression="SET notification_created = :val",
+                        ExpressionAttributeValues={":val": True},
+                    )
+                    logger.info(
+                        "Updated message notification_created flag",
+                        extra={
+                            "user_id": user_id,
+                            "tab_id": tab_id,
+                            "message_id": message_id,
+                        },
+                    )
+                else:
+                    logger.warning(
+                        "Message not found for notification update",
+                        extra={
+                            "user_id": user_id,
+                            "tab_id": tab_id,
+                            "message_id": message_id,
+                        },
+                    )
+            except Exception as update_error:
+                logger.exception(
+                    "Failed to update message notification_created flag",
+                    extra={
+                        "user_id": user_id,
+                        "tab_id": tab_id,
+                        "message_id": message_id,
+                        "error": str(update_error),
+                    },
+                )
 
         # created response
         return {

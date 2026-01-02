@@ -180,6 +180,7 @@ function MessageBubble({
   needsMoreContext,
   notificationCreated,
   notificationLoading,
+  postedToPiazza,
   isLoading,
   themeClasses,
   isFirstMessage,
@@ -371,7 +372,7 @@ function MessageBubble({
               disabled={notificationLoading || notificationCreated}
               className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                 notificationCreated
-                  ? 'bg-gray-400 opacity-60'
+                  ? 'bg-gray-400 opacity-60 cursor-not-allowed'
                   : notificationLoading
                   ? `${themeClasses.sendButton} cursor-wait opacity-80`
                   : `${themeClasses.sendButton} hover:scale-[1.02] transform cursor-pointer`
@@ -398,18 +399,21 @@ function MessageBubble({
                   Following...
                 </span>
               ) : notificationCreated ? (
-                '✓ Topic Followed!'
+                '✓ Topic Followed'
               ) : (
                 '🔔 Follow Topic'
               )}
             </button>
             <button
               onClick={() => onPostToPiazza?.(id)}
+              disabled={postedToPiazza}
               className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                themeClasses.sendButton
-              } hover:scale-[1.02] transform cursor-pointer`}
+                postedToPiazza
+                  ? 'bg-gray-400 opacity-60 cursor-not-allowed'
+                  : `${themeClasses.sendButton} hover:scale-[1.02] transform cursor-pointer`
+              }`}
             >
-              📮 Post to Piazza
+              {postedToPiazza ? '✓ Posted to Piazza' : '📮 Post to Piazza'}
             </button>
           </div>
         )}

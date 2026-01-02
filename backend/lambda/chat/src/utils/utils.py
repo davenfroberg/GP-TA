@@ -163,8 +163,8 @@ def save_assistant_message(
         assistant_message = {
             "user_id": user_id,
             "tab_id#created_at": sort_key,
-            "tab_id": int(tab_id),
-            "message_id": assistant_message_id,
+            "tab_id": str(tab_id),
+            "message_id": str(assistant_message_id),
             "role": "assistant",
             "text": text,
             "created_at": created_at,
