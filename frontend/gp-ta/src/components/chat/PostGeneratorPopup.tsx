@@ -13,90 +13,10 @@ interface PostGeneratorPopupProps {
 
 type PopupState = 'input' | 'generating' | 'editing' | 'posting';
 
-// Course folder mappings with hierarchical structure
 interface FolderItem {
   name: string;
   children?: string[];
 }
-
-const COURSE_FOLDERS: Record<string, FolderItem[]> = {
-  "CPSC 110": [
-    { name: "logistics" },
-    { name: "lectures" },
-    {
-      name: "labs",
-      children: ["general_lab_questions", "lab1", "lab2", "lab3", "lab4", "lab5", "lab6", "lab7", "lab8", "lab9", "lab10", "lab11"]
-    },
-    { name: "problem_sets",
-      children: ["general_problem_set_questions", "ps1", "ps2", "ps3", "ps4", "ps5", "ps6", "ps7", "ps8", "ps9", "ps10", "ps11"]
-    },
-    { name: "exams",
-      children: ["general_exam_questions", "mt1", "mt2", "final"]
-    },
-    { name: "other" }
-  ],
-  "CPSC 121": [
-    { name: "logistics" },
-    { name: "other" },
-    { name: "lecture" },
-    { name: "homework" },
-    {
-      name: "labs",
-      children: ["lab1", "lab2", "lab3", "lab4", "lab5", "lab6", "lab7", "lab8", "lab9"]
-    },
-    { name: "practice_questions",
-      children: ["pq1", "pq2", "pq3", "pq4", "pq5", "pq6", "pq7", "pq8", "pq9", "pq10", "pq11", "pq_labs"]
-    },
-    { name: "quizzes",
-      children: ["q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11"]
-    },
-    { name: "final" },
-    { name: "examlets" }
-  ],
-  "CPSC 330": [
-    { name: "logistics" },
-    { name: "lecture" },
-    { name: "hw1" },
-    { name: "hw2" },
-    { name: "hw3" },
-    { name: "hw4" },
-    { name: "hw5" },
-    { name: "hw6" },
-    { name: "hw7" },
-    { name: "hw8" },
-    { name: "hw9" },
-    { name: "exam" },
-    { name: "other" },
-    { name: "grading_concerns" },
-    { name: "iclicker" },
-    { name: "midterm" }
-  ],
-  "CPSC 404": [
-    { name: "exams" },
-    { name: "logistics" },
-    { name: "other" },
-    { name: "lecture" },
-    { name: "in_class_exercises" },
-    { name: "sql_server_lab" }
-  ],
-  "CPSC 418": [
-    { name: "exam" },
-    { name: "logistics" },
-    { name: "other" },
-    {
-      name: "exams",
-      children: ["mt1", "mt2", "final"]
-    },
-    { name: "bug_bounties" },
-    { name: "pikas",
-      children: ["pika1", "pika2", "pika3", "pika4", "pika5", "pika6", "pika7", "pika8", "pika9", "pika10"]
-    },
-    { name: "lecture" },
-    { name: "hw",
-      children: ["hw1", "hw2", "hw3", "hw4", "hw5", "hw6", "hw7"]
-    }
-  ]
-};
 
 export default function PostGeneratorPopup({
   isOpen,
@@ -114,6 +34,9 @@ export default function PostGeneratorPopup({
   const [selectedFolders, setSelectedFolders] = useState<Set<string>>(new Set());
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [selectedCourse, setSelectedCourse] = useState("");
+  const [courseFolders, setCourseFolders] = useState<FolderItem[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [foldersError, setFoldersError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -134,8 +57,77 @@ export default function PostGeneratorPopup({
       setSelectedFolders(new Set());
       setExpandedFolders(new Set());
       setSelectedCourse("");
+      setCourseFolders([]);
+      setFoldersError(null);
     }
   }, [isOpen]);
+
+  // Fetch folders when course from message is available
+  useEffect(() => {
+    const fetchFolders = async () => {
+      if (!isOpen || !activeTab) {
+        setCourseFolders([]);
+        return;
+      }
+
+      let messageCourse: string | undefined;
+      
+      if (messageId && activeTab) {
+        type Message = { id: number; role: string; text: string; course?: string };
+        const messages: Message[] = activeTab.messages;
+        const assistantIndex = messages.findIndex((m: Message) => m.id === messageId && m.role === "assistant");
+
+        if (assistantIndex !== -1 && assistantIndex > 0) {
+          const userMessage = messages[assistantIndex - 1];
+          if (userMessage && userMessage.role === "user" && userMessage.course) {
+            messageCourse = userMessage.course;
+          }
+        }
+      }
+
+      if (!messageCourse) {
+        setCourseFolders([]);
+        return;
+      }
+
+      setFoldersLoading(true);
+      setFoldersError(null);
+
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session.tokens?.idToken?.toString();
+
+        if (!idToken) {
+          throw new Error("No authentication token available");
+        }
+
+        const courseName = messageCourse.toLowerCase().replace(/\s+/g, '');
+        const response = await fetch(
+          `https://${import.meta.env.VITE_PIAZZA_POST_ID}.execute-api.us-west-2.amazonaws.com/prod/folders/${courseName}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${idToken}`
+            }
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch folders: ${response.status}`);
+        }
+
+        const folders = await response.json();
+        setCourseFolders(folders || []);
+      } catch (error: any) {
+        console.error('Error fetching folders:', error);
+        setFoldersError(error.message || 'Failed to load folders');
+        setCourseFolders([]);
+      } finally {
+        setFoldersLoading(false);
+      }
+    };
+
+    fetchFolders();
+  }, [isOpen, activeTab, messageId]);
 
   // Set initial course when popup opens - use course from the message if available
   useEffect(() => {
@@ -339,9 +331,10 @@ export default function PostGeneratorPopup({
 
   // Get available folders for the current course
   const getAvailableFolders = () => {
-    const course = selectedCourse || activeTab?.selectedCourse;
-    if (!course) return [{ name: "General" }];
-    return COURSE_FOLDERS[course] || [{ name: "General" }];
+    if (courseFolders.length > 0) {
+      return courseFolders;
+    }
+    return [{ name: "General" }];
   };
 
   // Handle folder selection
@@ -388,13 +381,12 @@ export default function PostGeneratorPopup({
   const handleSubFolderSelect = (parentFolderName: string, subFolderName: string) => {
     setSelectedFolders(prev => {
       const newSet = new Set(prev);
-      const fullPath = `${parentFolderName}:${subFolderName}`;
+      const fullPath = `${parentFolderName}/${subFolderName}`;
 
       if (newSet.has(fullPath)) {
         newSet.delete(fullPath);
       } else {
         newSet.add(fullPath);
-        // Also select the parent folder when selecting a child
         newSet.add(parentFolderName);
       }
       return newSet;
@@ -408,7 +400,7 @@ export default function PostGeneratorPopup({
 
   // Check if a subfolder is selected
   const isSubFolderSelected = (parentFolderName: string, subFolderName: string) => {
-    return selectedFolders.has(`${parentFolderName}:${subFolderName}`);
+    return selectedFolders.has(`${parentFolderName}/${subFolderName}`);
   };
 
   // Get all selected paths
@@ -500,6 +492,12 @@ export default function PostGeneratorPopup({
         <label className={`block text-sm font-medium ${themeClasses.label} mb-2`}>
           Select Folder
         </label>
+        {foldersLoading && (
+          <div className="text-sm text-gray-500 mb-2">Loading folders...</div>
+        )}
+        {foldersError && (
+          <div className="text-sm text-red-500 mb-2">{foldersError}</div>
+        )}
         <div className="flex flex-wrap gap-2">
           {getAvailableFolders().map((folder) => (
             <div key={folder.name} className="relative">
