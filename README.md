@@ -9,13 +9,13 @@ GP-TA is a RAG platform built to help UBC students get fast, contextually accura
 Instead of searching through dozens of posts, students can ask a question in plain language and immediately see answers grounded in the most relevant Piazza discussions. GP-TA pulls in the right threads (optionally prioritizing instructor replies) and shows clear citations and links so students can jump straight to the original post if they want more detail.
 
 ### Intelligent Intent Routing
-GP-TA automatically figures out what a student is really asking for: a direct answer, a quick topic overview, or a “what’s been happening lately?” summary. This means students don’t have to learn different modes or commands. Instead, the system automatically. routes their request to the experience that will be most useful.
+GP-TA automatically figures out what a student is really asking for: a direct answer, a quick topic overview, or a “what’s been happening lately?” summary. This means students don’t have to learn different modes or commands. Instead, the system automatically routes their request to the experience that will be most useful.
 
 ### Semantic-Based Notifications
 Students can “subscribe” to ideas instead of just threads. For example, “dynamic programming questions” or “exam logistics.” They’ll only get emails when genuinely related posts show up on Piazza, cutting down on notification spam while still surfacing the posts they care about most.
 
 ### Post Generation When Context Is Missing
-When Piazza doesn’t yet contain an answer, GP-TA doesn’t just shrug; it tells the student that more information is needed and helps them move forward. GP-TA can draft a clear, courteous Piazza post that captures what the student is stuck on, automatically posting it to Piazza on your behalf, making it easier for instructors and TAs to respond quickly and effectively.
+When Piazza doesn’t yet contain an answer, GP-TA tells the student that more information is needed and helps them move forward. GP-TA can draft a clear, courteous Piazza post that captures what the student is stuck on, automatically posting it to Piazza on the student's behalf, making it easier for instructors and TAs to respond quickly and effectively.
 
 ### Piazza Activity Summarization
 Students who have been away from Piazza for a few days can get a quick, high-level digest instead of scrolling through pages of posts. GP-TA groups recent activity into human-readable topics (like homework, exams, or conceptual questions) so they can see at a glance what’s changed and what might need their attention.
