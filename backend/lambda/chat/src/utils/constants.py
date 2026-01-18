@@ -9,19 +9,23 @@ POSTS_TABLE_NAME = "piazza-posts"
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 COURSES = {
-    "cpsc330": "mekbcze4gyber",
-    "cpsc110": "mdi1cvod8vu5hf",
-    "cpsc121": "mcv0sbotg6s51",
-    "cpsc404": "mdp45gef5b21ej",
-    "cpsc418": "met4o2esgko2zu",
+    "cpsc410": "mj7lmga4dwt40p",
+    "cpsc110": "mjxdv7l3glb5ri",
+    "cpsc121": "miqhst79nme76u",
+    "cpsc436s": "mfd1u2cai713sh",
+    "biol112": "mjxhkb5ev4a16n",
+    "cpsc440": "mk0uk8835r31ic",
+    "cpsc221": "mjrxls4whx72xp",
 }
 
 COURSE_DISPLAY_NAMES = {
-    "cpsc330": "CPSC 330",
+    "cpsc410": "CPSC 410",
     "cpsc110": "CPSC 110",
     "cpsc121": "CPSC 121",
-    "cpsc404": "CPSC 404",
-    "cpsc418": "CPSC 418",
+    "cpsc436s": "CPSC 436S",
+    "biol112": "BIO 112",
+    "cpsc440": "CPSC 440",
+    "cpsc221": "CPSC 221",
 }
 
 QUERY_PATTERNS = {

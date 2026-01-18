@@ -19,17 +19,18 @@ SECRETS = {
 }
 
 COURSE_NAMES = {
-    "mdi1cvod8vu5hf": "CPSC 110",
-    "mcv0sbotg6s51": "CPSC 121",
-    "mekbcze4gyber": "CPSC 330",
-    "mdp45gef5b21ej": "CPSC 404",
-    "met4o2esgko2zu": "CPSC 418",
+    "mjxdv7l3glb5ri": "CPSC 110",
+    "miqhst79nme76u": "CPSC 121",
+    "mfd1u2cai713sh": "CPSC 436S",
+    "mjxhkb5ev4a16n": "BIO 112",
+    "mk0uk8835r31ic": "CPSC 440",
+    "mjrxls4whx72xp": "CPSC 221",
+    "mj7lmga4dwt40p": "CPSC 410",
 }
 
+
 # Course IDs to ignore during processing
-IGNORED_COURSE_IDS = {
-    "meae0a6pfhq6i9"  # CPSC 436N (not my piazza course)
-}
+IGNORED_COURSE_IDS = {}
 
 
 MAJOR_UPDATE_TYPES = [
@@ -45,5 +46,5 @@ I_ANSWER_UPDATE_TYPES = [
 S_ANSWER_UPDATE_TYPES = [UpdateType.STUDENT_ANSWER.value, UpdateType.STUDENT_ANSWER_UPDATE.value]
 DISCUSSION_TYPES = [UpdateType.FEEDBACK.value, UpdateType.FOLLOWUP.value]
 
-SES_SOURCE_EMAIL = "GP-TA <noreply@davenfroberg.com>"
+SES_SOURCE_EMAIL = "GP-TA <noreply@gp-ta.ca>"
 SES_RECIPIENT_EMAIL = os.environ["SES_RECP_EMAIL"]

@@ -7,11 +7,13 @@ MESSAGES_TABLE_NAME = "messages"
 SECRETS = {"PINECONE": "pinecone_key"}
 
 COURSES = {
-    "cpsc330": "mekbcze4gyber",
-    "cpsc110": "mdi1cvod8vu5hf",
-    "cpsc121": "mcv0sbotg6s51",
-    "cpsc404": "mdp45gef5b21ej",
-    "cpsc418": "met4o2esgko2zu",
+    "cpsc410": "mj7lmga4dwt40p",
+    "cpsc110": "mjxdv7l3glb5ri",
+    "cpsc121": "miqhst79nme76u",
+    "cpsc436s": "mfd1u2cai713sh",
+    "biol112": "mjxhkb5ev4a16n",
+    "cpsc440": "mk0uk8835r31ic",
+    "cpsc221": "mjrxls4whx72xp",
 }
 
 THRESHOLD_ADDER = 0.1

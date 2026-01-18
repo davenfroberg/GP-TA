@@ -2,7 +2,7 @@
 export const API_KEY = import.meta.env.VITE_GP_TA_API_KEY;
 export const API_ID = import.meta.env.VITE_GP_TA_API_ID;
 export const WEBSOCKET_URL = `wss://${API_ID}.execute-api.us-west-2.amazonaws.com/production/?api_key=${API_KEY}`;
-export const COURSES = ["CPSC 110", "CPSC 121", "CPSC 330", "CPSC 404", "CPSC 418"];
+export const COURSES = ["CPSC 110", "CPSC 121", "CPSC 221", "CPSC 410", "CPSC 436S", "CPSC 440", "BIOL 112"];
 export const MODELS = [
   { value: "gpt-5", label: "GPT-5" },
   { value: "gpt-5-mini", label: "GPT-5-mini" }

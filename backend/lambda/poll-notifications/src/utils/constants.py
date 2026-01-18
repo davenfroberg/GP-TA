@@ -8,5 +8,5 @@ USERS_TABLE_NAME = "users"
 
 SECRETS = {"PINECONE": "pinecone_key"}
 
-SES_SOURCE_EMAIL = "GP-TA <noreply@davenfroberg.com>"
+SES_SOURCE_EMAIL = "GP-TA <noreply@gp-ta.ca>"
 SES_RECIPIENT_EMAIL = os.environ["SES_RECP_EMAIL"]
