@@ -168,19 +168,7 @@ def chat(
                     },
                 )
 
-            # Set full_response so it can be saved in the finally block
             full_response = no_updates_message
-
-            # Save assistant message to DynamoDB
-            if tab_id:
-                save_assistant_message(
-                    user_id=user_id,
-                    tab_id=tab_id,
-                    assistant_message_id=assistant_message_id,
-                    text=no_updates_message,
-                    course_name=course_display_name,
-                )
-
             return {"statusCode": 200}
 
         summaries_text = format_summaries_for_llm(summaries)
