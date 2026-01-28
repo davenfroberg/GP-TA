@@ -1,11 +1,22 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { signIn, signOut, signUp, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+import { signIn, signOut, signUp, confirmSignUp, resendSignUpCode, getCurrentUser, fetchAuthSession } from 'aws-amplify/auth';
+
+export class VerificationRequiredError extends Error {
+  email: string;
+  constructor(email: string, message: string) {
+    super(message);
+    this.name = 'VerificationRequiredError';
+    this.email = email;
+  }
+}
 
 interface AuthContextType {
   isAuthenticated: boolean;
   user: any | null;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string) => Promise<void>;
+  confirmSignup: (email: string, confirmationCode: string) => Promise<void>;
+  resendVerificationCode: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -58,21 +69,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsAuthenticated(true);
         }
       } else {
+        // Check if user needs to confirm signup
+        if (output.nextStep?.signInStep === 'CONFIRM_SIGN_UP') {
+          try {
+            await resendSignUpCode({ username: email });
+            throw new VerificationRequiredError(email, 'Please verify your email address. A new verification code has been sent.');
+          } catch (resendError: any) {
+            if (resendError instanceof VerificationRequiredError) {
+              throw resendError;
+            }
+            throw new VerificationRequiredError(email, 'Please verify your email address. A verification code has been sent.');
+          }
+        }
         // Additional authentication steps required (MFA, etc.)
         throw new Error('Additional authentication steps required.');
       }
     } catch (error: any) {
+      console.error('Login error details:', error);
+      console.error('Error name:', error.name);
+      console.error('Error cause:', error.cause);
+      console.error('Error underlyingError:', error.underlyingError);
+      console.error('Error message:', error.message);
+
+      // Check error name in multiple possible locations
+      const errorName = error.name || error.cause?.name || error.underlyingError?.name || error.cause?.code;
+
       // Handle specific Cognito errors
-      if (error.name === 'NotAuthorizedException') {
+      if (errorName === 'NotAuthorizedException') {
         throw new Error('Incorrect email or password.');
-      } else if (error.name === 'UserNotConfirmedException') {
-        throw new Error('Please confirm your email address before signing in.');
-      } else if (error.name === 'UserNotFoundException') {
+      } else if (errorName === 'UserNotConfirmedException') {
+        try {
+          await resendSignUpCode({ username: email });
+          throw new VerificationRequiredError(email, 'Please verify your email address. A new verification code has been sent.');
+        } catch (resendError: any) {
+          if (resendError instanceof VerificationRequiredError) {
+            throw resendError;
+          }
+          throw new VerificationRequiredError(email, 'Please verify your email address. A verification code has been sent.');
+        }
+      } else if (errorName === 'UserNotFoundException') {
         throw new Error('No account found with this email.');
-      } else if (error.name === 'InvalidParameterException') {
+      } else if (errorName === 'InvalidParameterException') {
         throw new Error('Invalid email or password format.');
       } else {
-        throw new Error(error.message || 'Failed to sign in. Please try again.');
+        // Check error message for UserNotConfirmedException as fallback
+        const errorMessage = error.message || error.cause?.message || '';
+        if (errorMessage.includes('UserNotConfirmed') || errorMessage.includes('not confirmed')) {
+          try {
+            await resendSignUpCode({ username: email });
+            throw new VerificationRequiredError(email, 'Please verify your email address. A new verification code has been sent.');
+          } catch (resendError: any) {
+            if (resendError instanceof VerificationRequiredError) {
+              throw resendError;
+            }
+            throw new VerificationRequiredError(email, 'Please verify your email address. A verification code has been sent.');
+          }
+        }
+        throw new Error(errorMessage || 'Failed to sign in. Please try again.');
       }
     }
   };
@@ -136,6 +189,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const confirmSignup = async (email: string, code: string) => {
+    try {
+      await confirmSignUp({
+        username: email,
+        confirmationCode: code,
+      });
+    } catch (error: any) {
+      if (error.name === 'CodeMismatchException') {
+        throw new Error('Invalid verification code. Please check the code and try again.');
+      } else if (error.name === 'ExpiredCodeException') {
+        throw new Error('The verification code has expired. Request a new code.');
+      } else if (error.name === 'AliasExistsException') {
+        throw new Error('An account with this email already exists.');
+      } else {
+        throw new Error(error.message || 'Failed to verify your account. Please try again.');
+      }
+    }
+  };
+
+  const resendVerificationCode = async (email: string) => {
+    try {
+      await resendSignUpCode({ username: email });
+    } catch (error: any) {
+      if (error.name === 'UserNotFoundException') {
+        throw new Error('No account found with this email.');
+      } else if (error.name === 'InvalidParameterException') {
+        throw new Error('Invalid email format.');
+      } else {
+        throw new Error(error.message || 'Failed to resend verification code. Please try again.');
+      }
+    }
+  };
+
   const logout = async () => {
     try {
       await signOut();
@@ -159,7 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, signup, logout, checkAuth }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, signup, confirmSignup, resendVerificationCode, logout, checkAuth }}>
       {children}
     </AuthContext.Provider>
   );

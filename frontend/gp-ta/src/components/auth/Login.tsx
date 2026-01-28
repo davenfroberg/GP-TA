@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { confirmResetPassword, resetPassword } from "aws-amplify/auth";
 import { useTheme } from "../../hooks/useTheme";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth, VerificationRequiredError } from "../../contexts/AuthContext";
 import { buildThemeClasses } from "./theme";
 import { EmailField, PasswordField } from "./Fields";
 import { StatusBanner, ErrorBanner } from "./Banners";
@@ -11,15 +11,17 @@ import ForgotPasswordSection from "./ForgotPasswordSection";
 export default function Login() {
   const isDark = useTheme();
   const navigate = useNavigate();
-  const { login, isAuthenticated } = useAuth();
+  const { login, confirmSignup, resendVerificationCode, isAuthenticated } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showVerification, setShowVerification] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [resetStage, setResetStage] = useState<"request" | "code" | "password">("request");
   const [confirmationCode, setConfirmationCode] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -40,9 +42,32 @@ export default function Login() {
 
     try {
       await login(email, password);
-    } catch (loginError) {
+    } catch (loginError: any) {
       console.error("Login error:", loginError);
-      setError(loginError instanceof Error ? loginError.message : "Failed to login. Please try again.");
+      console.error("Login error type:", typeof loginError);
+      console.error("Login error constructor:", loginError?.constructor?.name);
+      console.error("Login error instanceof VerificationRequiredError:", loginError instanceof VerificationRequiredError);
+      console.error("Login error name:", loginError?.name);
+      console.error("Login error message:", loginError?.message);
+
+      // Check if this is a verification required error
+      const errorMessage = loginError?.message || '';
+      const isVerificationError = loginError instanceof VerificationRequiredError ||
+                                  loginError?.name === 'VerificationRequiredError' ||
+                                  errorMessage.includes('verify your email address') ||
+                                  errorMessage.includes('verification code has been sent');
+
+      console.log('isVerificationError:', isVerificationError);
+      console.log('errorMessage:', errorMessage);
+
+      if (isVerificationError) {
+        console.log('Setting showVerification to true');
+        setShowVerification(true);
+        setStatusMessage(errorMessage || 'Please verify your email address. A verification code has been sent.');
+        setError(null);
+      } else {
+        setError(loginError instanceof Error ? loginError.message : "Failed to login. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -83,6 +108,43 @@ export default function Login() {
     setError(null);
     setStatusMessage(null);
     setResetStage("password");
+  };
+
+  const handleVerifySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationCode.trim()) {
+      setError("Please enter the verification code.");
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    setStatusMessage(null);
+    try {
+      await confirmSignup(email, verificationCode.trim());
+      setStatusMessage("Account verified! You can now sign in.");
+      setShowVerification(false);
+      setVerificationCode("");
+    } catch (verifyError) {
+      console.error("Verification error:", verifyError);
+      setError(verifyError instanceof Error ? verifyError.message : "Failed to verify. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    setIsLoading(true);
+    setError(null);
+    setStatusMessage(null);
+    try {
+      await resendVerificationCode(email);
+      setStatusMessage("A new verification code has been sent to your email.");
+    } catch (resendError) {
+      console.error("Resend code error:", resendError);
+      setError(resendError instanceof Error ? resendError.message : "Failed to resend code. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleConfirmReset = async (e?: React.FormEvent) => {
@@ -144,7 +206,82 @@ export default function Login() {
             <p className={`text-base ${themeClasses.subtitle}`}>Sign in or create an account</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          {showVerification ? (
+            <form onSubmit={handleVerifySubmit} className="space-y-5">
+              <p className={`text-sm text-center ${themeClasses.label}`}>
+                Check your inbox at <span className="font-medium">{email}</span> for a 6-digit verification code. Enter it below.
+              </p>
+              <div>
+                <label htmlFor="verificationCode" className={`block text-sm font-medium mb-2 ${themeClasses.label}`}>
+                  Verification code
+                </label>
+                <input
+                  id="verificationCode"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                  maxLength={6}
+                  disabled={isLoading}
+                  className={`w-full px-4 py-3 rounded-xl text-sm text-center tracking-[0.5em] transition-all ${themeClasses.input} ${
+                    isLoading ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                />
+              </div>
+              <StatusBanner message={statusMessage} themeClasses={themeClasses} />
+              <ErrorBanner message={error} themeClasses={themeClasses} />
+              <button
+                type="submit"
+                disabled={isLoading || verificationCode.length !== 6}
+                className={`w-full py-3 px-4 rounded-xl text-sm font-medium transition-all ${
+                  isLoading || verificationCode.length !== 6
+                    ? `${themeClasses.button} opacity-50 cursor-not-allowed`
+                    : `${themeClasses.button} hover:scale-[1.02] transform cursor-pointer active:scale-95`
+                } shadow-sm`}
+              >
+                {isLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                    Verifying...
+                  </span>
+                ) : (
+                  "Verify"
+                )}
+              </button>
+              <div className="flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={isLoading}
+                  className={`text-sm ${themeClasses.link} transition-colors ${isLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  Resend code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowVerification(false);
+                    setVerificationCode("");
+                    setError(null);
+                    setStatusMessage(null);
+                  }}
+                  className={`text-sm ${themeClasses.link} transition-colors cursor-pointer`}
+                >
+                  Back to sign in
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
           {!(showForgotPassword && resetStage === "password") && (
             <EmailField value={email} onChange={setEmail} disabled={isLoading} themeClasses={themeClasses} />
           )}
@@ -230,6 +367,7 @@ export default function Login() {
             </button>
           )}
         </form>
+          )}
 
           <div className={`mt-6 text-center text-sm ${themeClasses.subtitle}`}>
             Don't have an account?{" "}
