@@ -335,6 +335,55 @@ export default function PiazzaChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const idToken = session.tokens?.idToken?.toString();
+
+        if (!idToken) {
+          return;
+        }
+
+        const usersApiUrl = import.meta.env.VITE_USERS_API_URL || '';
+        const apiUrl = `${usersApiUrl}/me`;
+
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${idToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json();
+        const settings = {
+          name: data.name || '',
+          autoSaveChats: data.auto_save_chats !== undefined ? data.auto_save_chats : true,
+          showTypingIndicator: data.show_typing_indicator !== undefined ? data.show_typing_indicator : true,
+          defaultChatMode: data.default_chat_mode || 'Standard',
+          theme: data.theme === 'light' ? 'light' : 'dark',
+          fontSize: data.font_size || 'Medium',
+          compactMode: data.compact_mode !== undefined ? data.compact_mode : false,
+          emailNotifications: data.email_notifications !== undefined ? data.email_notifications : true,
+          browserNotifications: data.browser_notifications !== undefined ? data.browser_notifications : false,
+          notificationFrequency: data.notification_frequency || 'Real-time',
+          email: data.email || '',
+          isPremium: data.is_premium !== undefined ? data.is_premium : false,
+        };
+        localStorage.setItem('gp-ta-user-settings', JSON.stringify(settings));
+      } catch (error) {
+        console.error('Error loading user settings:', error);
+      }
+    };
+
+    loadUserSettings();
+  }, []);
+
   // Load tabs and messages from backend on component mount
   useEffect(() => {
     // Prevent multiple simultaneous loads

@@ -68,8 +68,18 @@ def register_user(event: dict) -> dict:
         now = datetime.now(timezone.utc).isoformat()
         user_record = {
             "user_id": user_id,
+            "is_premium": False,
             "email": email,
             "name": name,
+            "auto_save_chats": True,
+            "show_typing_indicator": True,
+            "default_chat_mode": "Standard",
+            "theme": "dark",
+            "font_size": "Medium",
+            "compact_mode": False,
+            "email_notifications": True,
+            "browser_notifications": False,
+            "notification_frequency": "Real-time",
             "created_at": now,
             "updated_at": now,
         }

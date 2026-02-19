@@ -1,4 +1,6 @@
+from endpoints.get_user import get_user
 from endpoints.register import register_user
+from endpoints.update_user import update_user
 from utils import logger
 
 
@@ -28,7 +30,27 @@ def lambda_handler(event: dict, context: dict) -> dict:
                 return {
                     "statusCode": 404,
                     "headers": {"Content-Type": "application/json"},
-                    "body": '{"error": "Not found - POST must be to /user"}',
+                    "body": '{"error": "Not found"}',
+                }
+        elif method == "GET":
+            if path.endswith("/user/me"):
+                return get_user(event)
+            else:
+                logger.warning("GET to invalid path", extra={"path": path})
+                return {
+                    "statusCode": 404,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": '{"error": "Not found"}',
+                }
+        elif method == "PATCH":
+            if path.endswith("/user/me"):
+                return update_user(event)
+            else:
+                logger.warning("PATCH to invalid path", extra={"path": path})
+                return {
+                    "statusCode": 404,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": '{"error": "Not found"}',
                 }
         else:
             logger.warning("Unsupported HTTP method", extra={"method": method, "path": path})
