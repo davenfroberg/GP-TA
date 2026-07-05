@@ -1085,7 +1085,7 @@ export default function PiazzaChat() {
           try {
             // Get fresh JWT token for each message
             const session = await fetchAuthSession();
-            const idToken = session.tokens?.idToken?.toString();
+            const idToken = session.tokens?.accessToken?.toString();
 
             if (!idToken) {
               throw new Error("No authentication token available. Please log in again.");
